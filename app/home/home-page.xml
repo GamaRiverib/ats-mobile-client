@@ -1,0 +1,18 @@
+<Page class="page"
+    navigatingTo="onNavigatingTo" 
+    xmlns="http://schemas.nativescript.org/tns.xsd"
+    xmlns:x="nativescript-statusbar">
+    <x:StatusBar ios:barStyle="light" barColor="#0D5615" />
+    <ActionBar class="action-bar" title="Home" icon="">
+    </ActionBar>
+
+    <DockLayout class="page-content" stretchLastChild="true">
+        <ActivityIndicator dock="top" busy="{{ loading }}" class="activity-indicator" />
+        <Image dock="top" horizontalAlignment="center" src="{{ icon }}" stretch="none" />
+        <Button dock="bottom" text="{{ action }}" tap="{{ onButtonTap }}" visibility="{{ enabled ? 'visible' : 'collapsed' }}" class="btn btn-primary btn-active" />
+        <StackLayout dock="top">
+            <Label horizontalAlignment="center" text="{{ state }}" class="h2" />
+            <Label horizontalAlignment="center" text="{{ message }}" class="text-muted" textWrap="true" />
+        </StackLayout>
+    </DockLayout>
+</Page>
