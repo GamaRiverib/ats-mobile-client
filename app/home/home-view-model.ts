@@ -1,4 +1,4 @@
-import { Observable, EventData } from "tns-core-modules/data/observable";
+import { Observable } from "tns-core-modules/data/observable";
 import { exitEvent, lowMemoryEvent, resumeEvent, ApplicationEventData, on as applicationOn } from "tns-core-modules/application";
 import { AtsService, AtsEvents, AtsStates, AtsModes, Sensor } from "~/services/ats-service";
 
@@ -8,10 +8,11 @@ const KEYS = {
     online: 'online',
     loading: 'loading',
     icon: 'icon',
+    systemState: 'systemState',
+    systemMode: 'systemMode',
+    activedSensors: 'activedSensors',
     state: 'state',
-    message: 'message',
-    action: 'action',
-    enabled: 'enabled'
+    message: 'message'
 };
 
 const KEYS_ICONS = [
@@ -36,6 +37,7 @@ export class HomeViewModel extends Observable {
         super();
 
         this.set(KEYS.loading, true);
+        this.set(KEYS.online, ats.connected);
 
         this.ats.subscribe(AtsEvents.SENSOR_ACTIVED, this.onSensorActived.bind(this));
         this.ats.subscribe(AtsEvents.SYSTEM_ALERT, this.onAlert.bind(this));
@@ -99,46 +101,77 @@ export class HomeViewModel extends Observable {
         vibrator.vibrate(1000, 1000);
         // setTopnavColor(appColors.dark);
     }
+
+    private handleTimeout(state: number, leftTimeout: number): void {
+        const _vm = this;
+        if (leftTimeout > 0 && (state == 4 || state == 2)) {
+            let _timeout: number = leftTimeout;
+            timeoutIntervalId = setInterval(() => {
+                if(_timeout > 0) {
+                    _timeout--;
+                    const message = `${_timeout || 0} seconds to ${state == 2 ? 'arm' : 'disarm'}`;
+                    _vm.set(KEYS.message, message);
+                } else {
+                    _timeout = null;
+                    _vm.set(KEYS.message, 'Waiting confirmation...');
+                    clearInterval(timeoutIntervalId);
+                }
+           }, 1000);
+        } else {
+            clearInterval(timeoutIntervalId);
+        }
+    }
     
     private onSystemStateChanged(data: any): void {
         if (data && data.system) {
             this._system = data.system;
-            this.set(KEYS.enabled, false);
-            this.handleTimeout(data);
-            const state: string = AtsStates[data.system.state];
-            const mode: string = AtsModes[data.system.mode];
+            
+            const systemState: number = data.system.state;
+            const systemMode: number = data.system.mode;
+            const state: string = AtsStates[systemState];
+            const mode: string = AtsModes[systemMode];
+            const activedSensors: Array<number> = data.system.activedSensors || [];
             const activedSensorsCount: number = data.system.activedSensors ? data.system.activedSensors.length : 0;
             const timeout: number | null = data.leftTimeout;
+
+            this.handleTimeout(systemState, timeout);
+
+            // this.set(KEYS.enabled, false);
+            this.set(KEYS.systemState, systemState);
+            this.set(KEYS.systemMode, systemMode);
+            this.set(KEYS.activedSensors, activedSensors);
             this.set(KEYS.state, state);
-            this.set(KEYS.icon, `res://${KEYS_ICONS[data.system.state]}`);
-            switch(data.system.state) {
+            // console.log(systemState); // TODO: Missing Image with resourceID: res://undefined
+            this.set(KEYS.icon, `res://${KEYS_ICONS[systemState]}`);
+
+            switch(systemState) {
                 case 0:
                     this.set(KEYS.message, '');
-                    this.set(KEYS.action, 'Arm');
-                    this.set(KEYS.enabled, true);
+                    /*this.set(KEYS.action, 'Arm');
+                    this.set(KEYS.enabled, true);*/
                     break;
                 case 1:
                     this.set(KEYS.message, `${activedSensorsCount} sensors actived`);
-                    this.set(KEYS.action, 'View sensors');
-                    this.set(KEYS.enabled, true);
+                    /*this.set(KEYS.action, 'View sensors');
+                    this.set(KEYS.enabled, true);*/
                     break;
                 case 2:
                     this.set(KEYS.message, timeout ? `${timeout || 0} seconds to arm` : 'Waiting confirmation...');
                     break;
                 case 3:
                     this.set(KEYS.message, `${mode} mode`);
-                    this.set(KEYS.action, 'Disarm');
-                    this.set(KEYS.enabled, true);
+                    /*this.set(KEYS.action, 'Disarm');
+                    this.set(KEYS.enabled, true);*/
                     break;
                 case 4:
                     this.set(KEYS.message, timeout ? `${timeout || 0} seconds to disarm` : 'Waiting confirmation...');
-                    this.set(KEYS.action, 'Disarm');
-                    this.set(KEYS.enabled, true);
+                    /*this.set(KEYS.action, 'Disarm');
+                    this.set(KEYS.enabled, true);*/
                     break;
                 case 5:
                     this.set(KEYS.message, '');
-                    this.set(KEYS.action, 'Disarm');
-                    this.set(KEYS.enabled, true);
+                    /*this.set(KEYS.action, 'Disarm');
+                    this.set(KEYS.enabled, true);*/
                     break;
                 case 6:
                     this.set(KEYS.message, 'Programming mode');
@@ -146,7 +179,7 @@ export class HomeViewModel extends Observable {
                 default:
                     this.set(KEYS.state, '');
                     this.set(KEYS.message, '');
-                    this.set(KEYS.action, '');
+                    // this.set(KEYS.action, '');
             }
         }
     }
@@ -193,28 +226,6 @@ export class HomeViewModel extends Observable {
         this.set(KEYS.loading, true);
     }
 
-
-    private handleTimeout(data: any): void {
-        const _system = data.system;
-        const _vm = this;
-        if (data.leftTimeout > 0 && (_system.state == 4 || _system.state == 2)) {
-            let _timeout: number = data.leftTimeout;
-            timeoutIntervalId = setInterval(() => {
-                if(_timeout > 0) {
-                    _timeout--;
-                    const message = `${_timeout || 0} seconds to ${_system.state == 2 ? 'arm' : 'disarm'}`;
-                    _vm.set(KEYS.message, message);
-                } else {
-                    _timeout = null;
-                    _vm.set(KEYS.message, 'Waiting confirmation...');
-                    clearInterval(timeoutIntervalId);
-                }
-           }, 1000);
-        } else {
-            clearInterval(timeoutIntervalId);
-        }
-    }
-
     private resumeEventHandler(args: ApplicationEventData): void {
         console.log('resumeEventHandler');
     }
@@ -232,7 +243,7 @@ export class HomeViewModel extends Observable {
         console.log('lowMemoryEventHandler');
     }
 
-    onButtonTap(args: EventData) {
+    /*onButtonTap(args: EventData) {
         // const button = <Button>args.object;
         if(this._system.state === 0) {
             console.log('Arm system');
@@ -241,5 +252,5 @@ export class HomeViewModel extends Observable {
         } else if (this._system.state === 3 || this._system.state === 4 || this._system.state === 5) {
             console.log('Disarm system');
         }
-    }
+    }*/
 }

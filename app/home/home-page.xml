@@ -9,7 +9,24 @@
     <DockLayout class="page-content" stretchLastChild="true">
         <ActivityIndicator dock="top" busy="{{ loading }}" class="activity-indicator" />
         <Image dock="top" horizontalAlignment="center" src="{{ icon }}" stretch="none" />
-        <Button dock="bottom" text="{{ action }}" tap="{{ onButtonTap }}" visibility="{{ enabled ? 'visible' : 'collapsed' }}" class="btn btn-primary btn-active" />
+        <Button dock="bottom" 
+            text="Arm" 
+            tap="onBtnArmTap" 
+            visibility="{{ systemState == 0 ? 'visible' : 'collapsed' }}" 
+            class="btn btn-ready"
+        />
+        <Button dock="bottom"
+            text="View sensors"
+            tap="onBtnSensorsTap"
+            visibility="{{ systemState == 1 ? 'visible' : 'collapsed' }}"
+            class="btn btn-disarmed"
+        />
+        <Button dock="bottom"
+            text="Disarm"
+            tap="onBtnDisarmTap"
+            visibility="{{ (systemState >= 3 && systemState <= 5) ? 'visible' : 'collapsed' }}"
+            class="btn btn-armed"
+        />
         <StackLayout dock="top">
             <Label horizontalAlignment="center" text="{{ state }}" class="h2" />
             <Label horizontalAlignment="center" text="{{ message }}" class="text-muted" textWrap="true" />

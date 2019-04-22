@@ -43,6 +43,16 @@ export const AtsEvents = {
     WEB_SOCKET_DISCONNECTED: 'WEB_SOCKET_DISCONNECTED',
 };
 
+export const ProtocolMesssages = {
+    Time: 'Time',
+    Events: 'Events',
+    Sensors: 'Sensors',
+    is: 'is',
+    Who: 'Who',
+    state: 'state',
+    command: 'command'
+};
+
 const PayloadEvents = [
     AtsEvents.SYSTEM_STATE_CHANGED,
     AtsEvents.SYSTEM_ALARMED,
@@ -81,6 +91,23 @@ export interface Sensor {
     chime?: string;
 }
 
+export interface SystemState {
+    before: number;
+    state: number;
+    mode: number;
+    activedSensors: Array<number>;
+    leftTime: number;
+    uptime: number;
+}
+
+export enum AtsErrors {
+    NOT_AUTHORIZED = 0,
+    INVALID_SYSTEM_STATE = 1,
+    BAD_REQUEST = 2,
+    WAS_A_PROBLEM = 3,
+    EMPTY_RESPONSE = 4
+}
+
 export class AtsService {
 
     private _connected: boolean = false;
@@ -109,7 +136,7 @@ export class AtsService {
     }
 
     get sensors(): Array<Sensor> {
-        return this.sensors;
+        return this._sensors;
     }
 
     get connected(): boolean {
@@ -119,13 +146,13 @@ export class AtsService {
     private init(): void {
         this._socket = new SocketIO(this.serverUrl);
         this.syncServerTime();
-        this._timeSynchronizationIntervalId = setInterval(this.syncServerTime.bind(this), 60000 *this._timeSynchronizationFrequency);
+        this._timeSynchronizationIntervalId = setInterval(this.syncServerTime.bind(this), 60000 * this._timeSynchronizationFrequency);
         this._socket.on('connect', this.onSocketConnected.bind(this));
         this._socket.on('disconnect', this.onSocketDisconnected.bind(this));
-        this._socket.on('Time', this.onReceiveTime.bind(this));
-        this._socket.on('Who', this.onReceiveWho.bind(this));
-        this._socket.on('Events', this.onReceiveEvents.bind(this));
-        this._socket.on('Sensors', this.onReceiveSensors.bind(this));
+        this._socket.on(ProtocolMesssages.Time, this.onReceiveTime.bind(this));
+        this._socket.on(ProtocolMesssages.Who, this.onReceiveWho.bind(this));
+        this._socket.on(ProtocolMesssages.Events, this.onReceiveEvents.bind(this));
+        this._socket.on(ProtocolMesssages.Sensors, this.onReceiveSensors.bind(this));
         this._socket.connect();
         console.log(`AtsService connecting to server ${this.serverUrl}`);
     }
@@ -143,13 +170,13 @@ export class AtsService {
             const now = new Date();
             this._timeDiff = now.getTime() - parseInt(res.content.toString());
             this._lastTimeSynchronization = now;
-        }).catch((error) => {
-            console.log(error);
+        }).catch((reason: any) => {
+            console.log(reason);
         });
     }
 
     private reconnect(): void {
-        if(this._reconnectIntents > 10) {
+        if(this._reconnectIntents > 5) {
             clearInterval(this._timeSynchronizationIntervalId);
             clearInterval(this._reconnectIntervalId);
             this._reconnectIntents = 0;
@@ -162,15 +189,15 @@ export class AtsService {
 
     private onSocketConnected(): void {
         this._connected = true;
-        this.publish(AtsEvents.WEB_SOCKET_CONNECTED);
-        clearInterval(this._reconnectIntervalId);
         this._reconnectIntents = 0;
+        clearInterval(this._reconnectIntervalId);
+        this.publish(AtsEvents.WEB_SOCKET_CONNECTED);
     }
 
     private onSocketDisconnected(): void {
         this._connected = false;
-        this.publish(AtsEvents.WEB_SOCKET_DISCONNECTED);
         this._reconnectIntervalId = setInterval(this.reconnect.bind(this), 3000);
+        this.publish(AtsEvents.WEB_SOCKET_DISCONNECTED);
     }
 
     private onReceiveTime(time: number): void {
@@ -181,20 +208,18 @@ export class AtsService {
     }
 
     private onReceiveWho(): void {
-        const token = parseInt(this.getToken());
-        const payload = { code: token, clientId: this.clientId };
-        this._socket.emit('is', payload);
+        const code = parseInt(this.getToken());
+        const payload = { code, clientId: this.clientId };
+        this._socket.emit(ProtocolMesssages.is, payload);
     }
 
     private payloadEventsIncludes(event: string): boolean {
-        let e: boolean = false;
-        PayloadEvents.forEach((v: string) => {
-            if(v == event) {
-                e = true;
-                return;
-            }
-        });
-        return e;
+        for (let i = 0; i < PayloadEvents.length; i++) {
+            if (PayloadEvents[i] === event) {
+                return true;
+            } 
+        }
+        return false;
     }
 
     private onReceiveEvents(config: any): void {
@@ -214,15 +239,9 @@ export class AtsService {
                     this.publish(AtsEvents[event], payload);
                 });
             } else {
-                this._socket.on(config[event], data => {
-                    this.publish(AtsEvents[event], data);
-                });
+                this._socket.on(config[event], data => this.publish(AtsEvents[event], data));
             }
         }
-    }
-
-    onReceiveSensors(sensors: any): void {
-        this._sensors = sensors;
     }
 
     private publish(event: string, data?: any): void {
@@ -231,17 +250,72 @@ export class AtsService {
         }
     }
 
-    getState(): Promise<HttpResponse> {
+    private onReceiveSensors(sensors: any): void {
+        if (sensors && Array.isArray(sensors)) {
+            this._sensors = sensors;
+        } else {
+            this._sensors = [];
+        }
+    }
+
+    private apiRequest(opts: HttpRequestOptions): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            request(opts).then((res: HttpResponse) => {
+                switch (res.statusCode) {
+                    case 401:
+                    case 403:
+                        return reject({ error: AtsErrors.NOT_AUTHORIZED });
+
+                    case 409:
+                        return reject({ error: AtsErrors.INVALID_SYSTEM_STATE });
+
+                    case 204:
+                        return resolve();
+
+                    default:
+                        return reject({ error: AtsErrors.BAD_REQUEST });
+                }
+            }).catch((reason: any) => {
+                console.log(reason);
+                reject({ error: AtsErrors.WAS_A_PROBLEM });
+            });
+        });
+    }
+
+    getState(): Promise<SystemState> {
         const url = `${this.serverUrl}/state`;
         const method = 'GET';
         const token = this.getToken();
         const headers = { 'Authorization': `${this.clientId} ${token}` };
         const opts: HttpRequestOptions = { url, method, headers };
 
-        return request(opts);
+        return new Promise<SystemState>((resolve, reject) => {
+            request(opts).then((res: HttpResponse) => {
+                switch (res.statusCode) {
+                    case 403:
+                    case 401:
+                        return reject({ error: AtsErrors.NOT_AUTHORIZED });
+
+                    case 200:
+                    case 201:
+                    case 204:
+                        if (res.content) {
+                            const data: SystemState = res.content.toJSON();
+                            return resolve(data);
+                        }
+                        return reject({ error: AtsErrors.EMPTY_RESPONSE });
+
+                    default:
+                        return reject({ error: AtsErrors.WAS_A_PROBLEM });
+                }
+            }).catch((reason: any) => {
+                console.log(reason);
+                reject({ error: AtsErrors.WAS_A_PROBLEM });
+            });
+        });
     };
 
-    arm(mode: string, code: string): Promise<HttpResponse> {
+    arm(mode: string, code?: string): Promise<void> {
         const url = `${this.serverUrl}/arm`;
         const method = 'PUT';
         let content = `mode=${mode}`;
@@ -255,10 +329,10 @@ export class AtsService {
         };
         const opts: HttpRequestOptions = { url, method, content, headers };
 
-        return request(opts);
+        return this.apiRequest(opts);
     };
 
-    disarm(code: string): Promise<HttpResponse> {
+    disarm(code: string): Promise<void> {
         const url = `${this.serverUrl}/disarm`;
         const method = 'PUT';
         const content = `code=${code}`;
@@ -269,10 +343,10 @@ export class AtsService {
         };
         const opts: HttpRequestOptions = { url, method, content, headers };
 
-        return request(opts);
+        return this.apiRequest(opts);
     };
 
-    bypass (location: string, code: string): Promise<HttpResponse> {
+    bypass (location: string, code: string): Promise<void> {
         const url = `${this.serverUrl}/bypass/one`;
         const method = 'PUT';
         let content = `location=${location}`;
@@ -286,10 +360,10 @@ export class AtsService {
         };
         const opts: HttpRequestOptions = { url, method, content, headers };
 
-        return request(opts);
+        return this.apiRequest(opts);
     };
 
-    bypassAll(locations: any, code: string): Promise<HttpResponse> {
+    bypassAll(locations: any, code: string): Promise<void> {
         const url = `${this.serverUrl}/bypass/all`;
         const method = 'PUT';
         let content = `locations=${locations}`;
@@ -303,10 +377,10 @@ export class AtsService {
         };
         const opts: HttpRequestOptions = { url, method, content, headers };
 
-        return request(opts);
+        return this.apiRequest(opts);
     };
 
-    clearBypass(code: string): Promise<HttpResponse> {
+    clearBypass(code: string): Promise<void> {
         const url = `${this.serverUrl}/bypass/all`;
         const method = 'DEL';
         const content = `code=${code}`;
@@ -317,10 +391,10 @@ export class AtsService {
         };
         const opts: HttpRequestOptions = { url, method, content, headers };
 
-        return request(opts);
+        return this.apiRequest(opts);
     };
 
-    programm(code: string): Promise<HttpResponse> {
+    programm(code: string): Promise<void> {
         const url = `${this.serverUrl}/config/programm`;
         const method = 'PUT';
         const content = `code=${code}`;
@@ -331,7 +405,7 @@ export class AtsService {
         };
         const opts: HttpRequestOptions = { url, method, content, headers };
 
-        return request(opts);
+        return this.apiRequest(opts);
     };
 
     subscribe(event: string, callback: (data: any) => void): void {

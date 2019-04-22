@@ -104,6 +104,18 @@
     font-size: 12;
 }
 
+.text-primary {
+    color: #007f0e;
+}
+
+.text-muted {
+    color: #9f9f9f;
+}
+
+.text-danger {
+    color: #d9534f;
+}
+
 .page label.text-primary, .tab-view label.text-primary {
     color: #007f0e;
 }
@@ -228,3 +240,26 @@
     color: #000000;
 }
 
+.btn-ready {
+    background-color: #9FE372;
+    border-color: #8cc665;
+    color: #000;
+    margin: 0;
+    padding: 80px;
+}
+
+.btn-disarmed {
+    background-color: #80B3FF;
+    border-color: #729FE3;
+    color: #000;
+    margin: 0;
+    padding: 80px;
+}
+
+.btn-armed {
+    background-color: #FF8080;
+    border-color: #E37272;
+    color: #000;
+    margin: 0;
+    padding: 80px;
+}

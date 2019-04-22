@@ -1,0 +1,67 @@
+<Page class="page"
+    navigatingTo="onNavigatingTo" 
+    navigatingFrom="onNavigatingFrom" 
+    loaded="onLoaded"
+    xmlns="http://www.nativescript.org/tns.xsd" 
+    xmlns:x="nativescript-statusbar">
+
+    <x:StatusBar ios:barStyle="light" barColor="#0D5615" />
+    <Page.actionBar>
+        <ActionBar title="Sensors" icon="" class="action-bar">
+            <NavigationButton ios:visibility="collapsed" text="Go Back" android.systemIcon="ic_menu_back" tap="onButtonBackTap" />
+            <ActionItem icon="res://navigation/menu" android:visibility="collapsed" tap="onButtonBackTap" ios.position="left" />
+        </ActionBar>
+    </Page.actionBar>
+    <ScrollView>
+        <StackLayout>
+            <ListView 
+                height="500" 
+                items="{{ sensors }}"
+                itemTap="onItemTap"
+                loaded="onListViewLoaded"
+                rowHeight="70"
+                class="list-group"
+            >
+                <ListView.itemTemplate>
+                    <GridLayout columns="auto, *, auto, auto" rows="auto, 25" verticalAlignment="top">
+                        <Label 
+                            text="{{ actived ? '&#xf3c1;' : '&#xf023;' }}"
+                            rowSpan="2"
+                            verticalAlignment="middle"
+                            class="fas h3 m-l-15 m-r-30 m-t-15 text-primary"
+                        />
+                        <Label
+                            text="{{ name }}"
+                            col="1"
+                            colSpan="2"
+                            class="h5 m-l-5 m-t-15"
+                        />
+                        <Label
+                            text="{{ type }}"
+                            col="1"
+                            row="1"
+                            horizontalAlignment="left"
+                            verticalAlignment="bottom"
+                            class="text-muted m-l-5 m-b-5"
+                        />
+                        <Label
+                            text="{{ group }}"
+                            col="2"
+                            row="1"
+                            verticalAlignment="bottom"
+                            class="text-muted m-b-5 m-r-20"
+                        />
+                        <Switch
+                            checked="{{ bypass }}"
+                            col="3"
+                            rowSpan="2"
+                            verticalAlignment="middle"
+                            class="switch m-l-20 m-r-15 m-t-15"
+                        />
+                    </GridLayout>
+                </ListView.itemTemplate>
+            </ListView>
+        </StackLayout>
+    </ScrollView>
+    
+</Page>
