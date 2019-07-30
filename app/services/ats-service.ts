@@ -88,6 +88,7 @@ export interface Sensor {
     type: SensorTypes;
     name: string;
     group: SensorGroup;
+    bypass: boolean;
     chime?: string;
 }
 
@@ -346,10 +347,10 @@ export class AtsService {
         return this.apiRequest(opts);
     };
 
-    bypass (location: string, code: string): Promise<void> {
+    bypass (location: SensorLocation, code: string): Promise<void> {
         const url = `${this.serverUrl}/bypass/one`;
         const method = 'PUT';
-        let content = `location=${location}`;
+        let content = `location=${JSON.stringify(location)}`;
         if(code) {
             content += `&code=${code}`;
         }
@@ -363,10 +364,10 @@ export class AtsService {
         return this.apiRequest(opts);
     };
 
-    bypassAll(locations: any, code: string): Promise<void> {
+    bypassAll(locations: SensorLocation[], code: string): Promise<void> {
         const url = `${this.serverUrl}/bypass/all`;
         const method = 'PUT';
-        let content = `locations=${locations}`;
+        let content = `locations=${JSON.stringify(locations)}`;
         if(code) {
             content += `&code=${code}`;
         }
@@ -381,8 +382,8 @@ export class AtsService {
     };
 
     clearBypass(code: string): Promise<void> {
-        const url = `${this.serverUrl}/bypass/all`;
-        const method = 'DEL';
+        const url = `${this.serverUrl}/unbypass/all`;
+        const method = 'PUT';
         const content = `code=${code}`;
         const token = this.getToken();
         const headers = {
@@ -393,6 +394,23 @@ export class AtsService {
 
         return this.apiRequest(opts);
     };
+
+    clearBypassOne(location: SensorLocation, code: string): Promise<void> {
+        const url = `${this.serverUrl}/unbypass/one`;
+        const method = 'PUT';
+        let content = `location=${JSON.stringify(location)}`;
+        if(code) {
+            content += `&code=${code}`;
+        }
+        const token = this.getToken();
+        const headers = {
+            'Authorization': `${this.clientId} ${token}`,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        };
+        const opts: HttpRequestOptions = { url, method, content, headers };
+
+        return this.apiRequest(opts);
+    }
 
     programm(code: string): Promise<void> {
         const url = `${this.serverUrl}/config/programm`;

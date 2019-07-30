@@ -34,7 +34,7 @@ export function onListViewLoaded(args: EventData): void {
     console.log('onListViewLoaded');
 }
 
-export function onButtonBackTap(args: EventData) {
+export function onButtonBackTap(args: EventData): void {
     const view: ViewBase = <ViewBase>args.object;
     const page: Page = view.page;
     page.closeModal(null);

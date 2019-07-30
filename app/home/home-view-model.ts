@@ -1,8 +1,10 @@
 import { Observable } from "tns-core-modules/data/observable";
 import { exitEvent, lowMemoryEvent, resumeEvent, ApplicationEventData, on as applicationOn } from "tns-core-modules/application";
-import { AtsService, AtsEvents, AtsStates, AtsModes, Sensor } from "~/services/ats-service";
 
 import { Vibrate } from 'nativescript-vibrate';
+import * as Toast from "nativescript-toast";
+
+import { AtsService, AtsEvents, AtsStates, AtsModes, Sensor } from "~/services/ats-service";
 
 const KEYS = {
     online: 'online',
@@ -30,8 +32,6 @@ const vibrator = new Vibrate();
 let timeoutIntervalId: number;
 
 export class HomeViewModel extends Observable {
-
-    private _system: any;
 
     constructor(private ats: AtsService) {
         super();
@@ -71,8 +71,18 @@ export class HomeViewModel extends Observable {
     }
 
     private onAlert(data: any): void {
-        console.log('onAlert', data);
-        vibrator.vibrate([1000, 300, 300]);
+        let toast: Toast.Toast
+        if(data && data.system) {
+            const activedSensors: Array<number> = data.system.activedSensors || [];
+            const sensors: Array<string> = [];
+            activedSensors.forEach((s: number) => sensors.push(this.ats.getSensor(s).name ));
+            toast = Toast.makeText(`Received system alert: ${sensors}`);
+        } else {
+            toast = Toast.makeText('Received system alert');
+        }
+        toast.setDuration(5000);
+        toast.show();
+        // vibrator.vibrate([1000, 300, 300]);
         // setTopnavColor(appColors.warning);
         // TODO: log to recent activity
     }
@@ -124,7 +134,6 @@ export class HomeViewModel extends Observable {
     
     private onSystemStateChanged(data: any): void {
         if (data && data.system) {
-            this._system = data.system;
             
             const systemState: number = data.system.state;
             const systemMode: number = data.system.mode;
@@ -136,42 +145,30 @@ export class HomeViewModel extends Observable {
 
             this.handleTimeout(systemState, timeout);
 
-            // this.set(KEYS.enabled, false);
             this.set(KEYS.systemState, systemState);
             this.set(KEYS.systemMode, systemMode);
             this.set(KEYS.activedSensors, activedSensors);
             this.set(KEYS.state, state);
-            // console.log(systemState); // TODO: Missing Image with resourceID: res://undefined
             this.set(KEYS.icon, `res://${KEYS_ICONS[systemState]}`);
 
             switch(systemState) {
                 case 0:
                     this.set(KEYS.message, '');
-                    /*this.set(KEYS.action, 'Arm');
-                    this.set(KEYS.enabled, true);*/
                     break;
                 case 1:
                     this.set(KEYS.message, `${activedSensorsCount} sensors actived`);
-                    /*this.set(KEYS.action, 'View sensors');
-                    this.set(KEYS.enabled, true);*/
                     break;
                 case 2:
                     this.set(KEYS.message, timeout ? `${timeout || 0} seconds to arm` : 'Waiting confirmation...');
                     break;
                 case 3:
                     this.set(KEYS.message, `${mode} mode`);
-                    /*this.set(KEYS.action, 'Disarm');
-                    this.set(KEYS.enabled, true);*/
                     break;
                 case 4:
                     this.set(KEYS.message, timeout ? `${timeout || 0} seconds to disarm` : 'Waiting confirmation...');
-                    /*this.set(KEYS.action, 'Disarm');
-                    this.set(KEYS.enabled, true);*/
                     break;
                 case 5:
                     this.set(KEYS.message, '');
-                    /*this.set(KEYS.action, 'Disarm');
-                    this.set(KEYS.enabled, true);*/
                     break;
                 case 6:
                     this.set(KEYS.message, 'Programming mode');
@@ -179,7 +176,6 @@ export class HomeViewModel extends Observable {
                 default:
                     this.set(KEYS.state, '');
                     this.set(KEYS.message, '');
-                    // this.set(KEYS.action, '');
             }
         }
     }
@@ -242,15 +238,4 @@ export class HomeViewModel extends Observable {
     private lowMemoryEventHandler(args: ApplicationEventData): void {
         console.log('lowMemoryEventHandler');
     }
-
-    /*onButtonTap(args: EventData) {
-        // const button = <Button>args.object;
-        if(this._system.state === 0) {
-            console.log('Arm system');
-        } else if(this._system.state === 1) {
-            console.log('View sensors');
-        } else if (this._system.state === 3 || this._system.state === 4 || this._system.state === 5) {
-            console.log('Disarm system');
-        }
-    }*/
 }

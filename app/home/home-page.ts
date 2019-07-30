@@ -4,7 +4,8 @@ a code-behind file. The code-behind is a great place to place your view
 logic, and to set up your page’s data binding.
 */
 
-import { NavigatedData, Page, EventData, ShownModallyData, ShowModalOptions } from "tns-core-modules/ui/page";
+import { NavigatedData, Page, EventData, ShownModallyData, ShowModalOptions, ViewBase } from "tns-core-modules/ui/page";
+import { GestureTypes, SwipeGestureEventData, SwipeDirection } from "tns-core-modules/ui/gestures";
 import { Frame, NavigationEntry } from "tns-core-modules/ui/frame/frame";
 import { Button } from "tns-core-modules/ui/button";
 import * as Toast from "nativescript-toast";
@@ -22,12 +23,27 @@ export function onNavigatingTo(args: NavigatedData) {
     const page = <Page>args.object;
 
     page.bindingContext = new HomeViewModel(atsService);
+
+    page.layoutView.on(GestureTypes.swipe, handleGestureSwipe);
+}
+
+function handleGestureSwipe(args: SwipeGestureEventData) {
+    const v = <ViewBase>args.object;
+    const page = v.page;
+    switch(args.direction) {
+        case SwipeDirection.down:
+            break;
+        case SwipeDirection.up:
+            break;
+        case SwipeDirection.left:
+            showModalSensors(page);
+            break;
+        case SwipeDirection.right:
+            break;
+    }
 }
 
 export function onBtnArmTap(args: EventData): void {
-    // const button = <Button>args.object;
-    // const page: Page = button.page;
-
     const actionOptions: ActionOptions = {
         title: "Arm system",
         message: "Select mode",
@@ -63,6 +79,10 @@ export function onBtnArmTap(args: EventData): void {
 export function onBtnSensorsTap(args: EventData): void {
     const button = <Button>args.object;
     const page: Page = button.page;
+    showModalSensors(page);
+}
+
+function showModalSensors(page: Page): void {
     const modalFrame: Frame = new Frame();
 
     // TODO: get default mode
@@ -94,8 +114,7 @@ export function onBtnDisarmTap(args: EventData): void {
         okButtonText: "Ok",
         cancelButtonText: "Cancel",
         defaultText: "",
-        inputType: inputType.password//, // email, number, text, password, or email
-        // capitalizationType: capitalizationType.sentences // all. none, sentences or words
+        inputType: inputType.password
     };
     prompt(promptOptions).then((r: PromptResult) => {
         if(r.result && r.text.length > 0) {
@@ -108,14 +127,14 @@ export function onBtnDisarmTap(args: EventData): void {
                         toast = Toast.makeText('Not authorized', 'long');
                         break;
                     case 1:
-                        toast = Toast.makeText('System is not armed or alamred', 'long');
+                        toast = Toast.makeText('System is not armed or alarmed', 'long');
                         break;
 
                     default:
                         toast = Toast.makeText('There was a problem', 'long');
                 }
                 toast.show();
-            })
+            });
         }
     });
 }

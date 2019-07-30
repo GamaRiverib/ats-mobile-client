@@ -29,6 +29,7 @@
                             rowSpan="2"
                             verticalAlignment="middle"
                             class="fas h3 m-l-15 m-r-30 m-t-15 text-primary"
+                            color="{{ actived, actived ? '#d9534f' : '#007f0e' }}"
                         />
                         <Label
                             text="{{ name }}"
