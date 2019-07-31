@@ -1,10 +1,17 @@
 import { SocketIO } from 'nativescript-socketio';
+import { MQTTClient, ClientOptions, SubscribeOptions, Message } from 'nativescript-mqtt';
 import { request, HttpResponse, HttpRequestOptions } from 'tns-core-modules/http';
 import { getTotp } from './otp-provider';
 
-const serverUrl: string = "http://192.168.137.1:3000";
-const clientId: string = "galaxys6";
-const secret: string = "79STCF7GW7Q64TLD";
+const serverUrl: string = 'http://192.168.137.1:3000';
+const clientId: string = 'galaxys6';
+const secret: string = '79STCF7GW7Q64TLD';
+
+const brokerUrl: string = '192.168.137.1';
+const brokerPort: number = 9001;
+const mqttUser: string = '';
+const mqttPass: string = '';
+const mqttTopic: string = 'ats';
 
 var atsServiceInstance = null;
 
@@ -41,6 +48,8 @@ export const AtsEvents = {
     MAX_UNAUTHORIZED_INTENTS: 'MAX_UNAUTHORIZED_INTENTS',
     WEB_SOCKET_CONNECTED: 'WEB_SOCKET_CONNECTED',
     WEB_SOCKET_DISCONNECTED: 'WEB_SOCKET_DISCONNECTED',
+    MQTT_CONNECTED: 'MQTT_CONNECTED',
+    MQTT_DISCONNECTED: 'MQTT_DISCONNECTED'
 };
 
 export const ProtocolMesssages = {
@@ -111,8 +120,10 @@ export enum AtsErrors {
 
 export class AtsService {
 
-    private _connected: boolean = false;
+    private _ws_connected: boolean = false;
+    private _mqtt_connected: boolean = false;
     private _socket: SocketIO = null;
+    private _mqtt: MQTTClient = null;
     private _timeDiff: number = 0;
     private _lastTimeSynchronization: Date = null;
     private _timeSynchronizationFrequency: number = 10;
@@ -124,8 +135,9 @@ export class AtsService {
     private _reconnectIntervalId: number = null;
 
     private constructor(private serverUrl: string, private clientId: string, private secret: string) {
-        this._connected = false;
+        this._ws_connected = false;
         this.init();
+        this.connectToMQTT();
     }
 
     static getInstance(): AtsService {
@@ -141,7 +153,7 @@ export class AtsService {
     }
 
     get connected(): boolean {
-        return this._connected;
+        return this._ws_connected || this._mqtt_connected;
     }
 
     private init(): void {
@@ -156,6 +168,26 @@ export class AtsService {
         this._socket.on(ProtocolMesssages.Sensors, this.onReceiveSensors.bind(this));
         this._socket.connect();
         console.log(`AtsService connecting to server ${this.serverUrl}`);
+    }
+
+    private connectToMQTT(): void {
+        let opts: ClientOptions = {
+            host: brokerUrl,
+            port: brokerPort,
+            retryOnDisconnect: true,
+            useSSL: false,
+            cleanSession: false,
+            clientId: clientId
+        };
+
+        console.log('Connecting to MQTT broker...');
+        this._mqtt = new MQTTClient(opts);
+        this._mqtt.onConnectionFailure.on(this.onMqttConnectionFailure.bind(this));
+        this._mqtt.onConnectionSuccess.on(this.onMqttConnectionSuccess.bind(this));
+        this._mqtt.onConnectionLost.on(this.onMqttConnectionLost.bind(this));
+        this._mqtt.onMessageArrived.on(this.onMqttMessageArrived.bind(this));
+
+        this._mqtt.connect(mqttUser, mqttPass);
     }
 
     private getToken(): string {
@@ -181,7 +213,9 @@ export class AtsService {
             clearInterval(this._timeSynchronizationIntervalId);
             clearInterval(this._reconnectIntervalId);
             this._reconnectIntents = 0;
-            this.init();
+            this._reconnectIntervalId = setInterval(this.reconnect.bind(this), 60000 * 5);
+            // this.publish(AtsEvents.WEB_SOCKET_DISCONNECTED);
+            // this.init();
         } else {
             this._reconnectIntents++;
             this._socket.connect();
@@ -189,14 +223,14 @@ export class AtsService {
     }
 
     private onSocketConnected(): void {
-        this._connected = true;
+        this._ws_connected = true;
         this._reconnectIntents = 0;
         clearInterval(this._reconnectIntervalId);
         this.publish(AtsEvents.WEB_SOCKET_CONNECTED);
     }
 
     private onSocketDisconnected(): void {
-        this._connected = false;
+        this._ws_connected = false;
         this._reconnectIntervalId = setInterval(this.reconnect.bind(this), 3000);
         this.publish(AtsEvents.WEB_SOCKET_DISCONNECTED);
     }
@@ -256,6 +290,53 @@ export class AtsService {
             this._sensors = sensors;
         } else {
             this._sensors = [];
+        }
+    }
+
+    private onMqttConnectionFailure(err: any): void {
+        console.log('MQTT connection failure', err);
+    }
+
+    private onMqttConnectionSuccess(): void {
+        this._mqtt_connected = true;
+        this.publish(AtsEvents.MQTT_CONNECTED);
+        console.log('Connected to MQTT', brokerUrl, brokerPort);
+        try {
+            let subOpts: SubscribeOptions = { qos: 0};
+            this._mqtt.subscribe(`${mqttTopic}/#`, subOpts);
+        } catch(e) {
+            console.log(e);
+        }
+    }
+
+    private onMqttConnectionLost(err: any): void {
+        this._mqtt_connected = false;
+        this.publish(AtsEvents.MQTT_DISCONNECTED);
+        console.log('MQTT connection lost', err);
+    }
+
+    private onMqttMessageArrived(message: Message): void {
+        const topic: string = message.topic;
+        const event: string = topic.substr(mqttTopic.length + 1);
+        const payload: string = message.payload;
+        // if websocket is disconnected
+        if(!this._ws_connected) {
+            if(event == 'SENSORS') {
+                this.onReceiveSensors(JSON.parse(payload));
+            } else if (this.payloadEventsIncludes(event)) {
+                const systemState = { state: 0, mode: 0, activedSensors: [] };
+                systemState.state = Number.parseInt(payload.charAt(0), 32);
+                systemState.mode = Number.parseInt(payload.charAt(1), 32);
+                const leftTimeout = Number.parseInt(payload.charAt(2) + '' + payload.charAt(3), 32);
+                const count = Number.parseInt(payload.charAt(4) + '' + payload.charAt(5), 32);
+                for(let i = 6; i < 6 + count * 2; i++) {
+                    systemState.activedSensors.push(Number.parseInt(payload.charAt(i++) + '' + payload.charAt(i), 32));
+                }
+                const p = { system: systemState, leftTimeout: leftTimeout };
+                this.publish(AtsEvents[event], p);
+            } else {
+                this.publish(AtsEvents[event], payload);
+            }
         }
     }
 

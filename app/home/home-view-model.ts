@@ -54,6 +54,9 @@ export class HomeViewModel extends Observable {
         this.ats.subscribe(AtsEvents.WEB_SOCKET_CONNECTED, this.onConnected.bind(this));
         this.ats.subscribe(AtsEvents.WEB_SOCKET_DISCONNECTED, this.onDisconnected.bind(this));
 
+        this.ats.subscribe(AtsEvents.MQTT_CONNECTED, this.onRemotelyConnected.bind(this));
+        this.ats.subscribe(AtsEvents.MQTT_DISCONNECTED, this.onRemotelyDisconnected.bind(this));
+
         applicationOn(resumeEvent, this.resumeEventHandler.bind(this));
         applicationOn(exitEvent, this.exitEventHandler.bind(this));
         applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));
@@ -67,7 +70,7 @@ export class HomeViewModel extends Observable {
     }
 
     private onSensorActived(data: any): void {
-        console.log('onSensorActived', data);
+        // console.log('onSensorActived', data);
     }
 
     private onAlert(data: any): void {
@@ -96,18 +99,18 @@ export class HomeViewModel extends Observable {
     }
     
     private onSystemAlarmed(data: any): void {
-        console.log('onSystemAlarmed', data);
+        // console.log('onSystemAlarmed', data);
         vibrator.vibrate([1000, 1000, 1000, 1000]);
         // setTopnavColor(appColors.danger);
     }
     
     private onSystemArmed(data: any): void {
-        console.log('onSystemArmed', data);
+        // console.log('onSystemArmed', data);
         vibrator.vibrate(1000);
     }
     
     private onSystemDisarmed(data: any): void {
-        console.log('onSystemDisarmed', data);
+        // console.log('onSystemDisarmed', data);
         vibrator.vibrate(1000, 1000);
         // setTopnavColor(appColors.dark);
     }
@@ -211,8 +214,8 @@ export class HomeViewModel extends Observable {
         // showNotification('Connected');
         this.set(KEYS.online, true);
         this.set(KEYS.loading, false);
+        this.set(KEYS.message, 'Waiting state...');
         this.ats.getState()
-            .then(res => this.onSystemStateChanged({ leftTimeout: 0, system: res }))
             .catch(error => console.log(error));
     }
     
@@ -220,6 +223,20 @@ export class HomeViewModel extends Observable {
         // showNotification('Disconnected', 6000);
         this.set(KEYS.online, false);
         this.set(KEYS.loading, true);
+    }
+
+    private onRemotelyConnected(data: any): void {
+        this.set(KEYS.online, true);
+        this.set(KEYS.loading, false);
+        this.set(KEYS.message, 'Waiting state...');
+    }
+
+    private onRemotelyDisconnected(data: any): void {
+        if(!this.ats.connected) {
+            this.set(KEYS.online, false);
+            this.set(KEYS.loading, true);
+            this.set(KEYS.message, 'Connecting...');
+        }
     }
 
     private resumeEventHandler(args: ApplicationEventData): void {

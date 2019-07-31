@@ -15,9 +15,15 @@ import { prompt, PromptOptions, PromptResult, inputType } from "tns-core-modules
 
 import { HomeViewModel } from "./home-view-model";
 
-import { AtsService, AtsModes } from "../services/ats-service";
+import { AtsService, AtsModes, AtsEvents } from "../services/ats-service";
+import { ActionBar } from "tns-core-modules/ui/action-bar/action-bar";
 
 const atsService: AtsService = AtsService.getInstance();
+
+var localyConnected: boolean = false;
+var remotelyConnected: boolean = false;
+var actionBar: ActionBar = null;
+var defaultNavBarColor: string = '#007F0E';
 
 export function onNavigatingTo(args: NavigatedData) {
     const page = <Page>args.object;
@@ -25,6 +31,43 @@ export function onNavigatingTo(args: NavigatedData) {
     page.bindingContext = new HomeViewModel(atsService);
 
     page.layoutView.on(GestureTypes.swipe, handleGestureSwipe);
+
+    actionBar = page.actionBar;
+
+    atsService.subscribe(AtsEvents.WEB_SOCKET_CONNECTED, onLocalyConnected);
+    atsService.subscribe(AtsEvents.WEB_SOCKET_DISCONNECTED, onLocalyDisconnected);
+    atsService.subscribe(AtsEvents.MQTT_CONNECTED, onRemotelyConnected);
+    atsService.subscribe(AtsEvents.MQTT_DISCONNECTED, onRemotelyDisconnected);
+}
+
+function updateNavBarColor(): void {
+    if(localyConnected) {
+        actionBar.backgroundColor = defaultNavBarColor;
+    } else if(remotelyConnected) {
+        actionBar.backgroundColor =  '#729FE3';
+    } else {
+        actionBar.backgroundColor = '#A2A2A2';
+    }
+}
+
+function onLocalyConnected(): void {
+    localyConnected = true;
+    updateNavBarColor();
+}
+
+function onLocalyDisconnected(): void {
+    localyConnected = false;
+    updateNavBarColor();
+}
+
+function onRemotelyConnected(): void {
+    remotelyConnected = true;
+    updateNavBarColor();
+}
+
+function onRemotelyDisconnected(): void {
+    remotelyConnected = false;
+    updateNavBarColor();
 }
 
 function handleGestureSwipe(args: SwipeGestureEventData) {
