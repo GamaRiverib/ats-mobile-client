@@ -1,17 +1,9 @@
-import { SocketIO } from 'nativescript-socketio';
-import { MQTTClient, ClientOptions, SubscribeOptions, Message } from 'nativescript-mqtt';
-import { request, HttpResponse, HttpRequestOptions } from 'tns-core-modules/http';
 import { getTotp } from './otp-provider';
+import { WebSocketChannel } from './ws-channel';
+import { MQTTChannel } from './mqtt-channel';
 
-const serverUrl: string = 'http://192.168.137.1:3000';
 const clientId: string = 'galaxys6';
 const secret: string = '79STCF7GW7Q64TLD';
-
-const brokerUrl: string = '192.168.137.1';
-const brokerPort: number = 9001;
-const mqttUser: string = '';
-const mqttPass: string = '';
-const mqttTopic: string = 'ats';
 
 var atsServiceInstance = null;
 
@@ -115,34 +107,60 @@ export enum AtsErrors {
     INVALID_SYSTEM_STATE = 1,
     BAD_REQUEST = 2,
     WAS_A_PROBLEM = 3,
-    EMPTY_RESPONSE = 4
+    EMPTY_RESPONSE = 4,
+    NOT_CONNECTED = 5,
+    TIMEOUT = 6
+}
+
+export interface Channel {
+    connect(): void;
+    connected(): boolean;
+    onConnected(handler: () => void): void;
+    onDisconnected(handler: () => void): void;
+    getServerTime(): Promise<number>;
+    sendIsMessage(token: string): void;
+    getState(token: string): Promise<SystemState>;
+    arm(token: string, mode: number, code?: string): Promise<void>;
+    disarm(token: string, code: string): Promise<void>;
+    bypass (token: string, location: SensorLocation, code: string): Promise<void>;
+    bypassAll(token: string, locations: SensorLocation[], code: string): Promise<void>;
+    clearBypass(token: string, code: string): Promise<void>;
+    clearBypassOne(token: string, location: SensorLocation, code: string): Promise<void>;
+    programm(token: string, code: string): Promise<void>;
+    onReceiveTime(handler: (time: number) => void): void;
+    onReceiveWho(handler: () => void): void;
+    onReceiveEvents(handler: (config: any) => void): void;
+    onReceiveSensors(handler: (sensors: any) => void): void;
+    subscribe(topic: string, callback: (data: any) => void): void;
 }
 
 export class AtsService {
 
-    private _ws_connected: boolean = false;
-    private _mqtt_connected: boolean = false;
-    private _socket: SocketIO = null;
-    private _mqtt: MQTTClient = null;
+    private _webSocketChannel: Channel;
+    private _mqttChannel: Channel;
+
     private _timeDiff: number = 0;
-    private _lastTimeSynchronization: Date = null;
     private _timeSynchronizationFrequency: number = 10;
     private _timeSynchronizationIntervalId: number = null;
+
     private _sensors: Array<Sensor> = [];
-    private _eventHandlers: any = {};
 
-    private _reconnectIntents: number = 0;
-    private _reconnectIntervalId: number = null;
+    private _listeners: any = {};
 
-    private constructor(private serverUrl: string, private clientId: string, private secret: string) {
-        this._ws_connected = false;
-        this.init();
-        this.connectToMQTT();
+    private constructor(private clientId: string, private secret: string) {
+        this.startWebSocketChannel();
+        this.startMQTTChannel();
+
+        this._webSocketChannel.connect();
+        const m: Channel = this._mqttChannel;
+        setTimeout(m.connect.bind(m), 1000); // 1 second delay
+
+        this.startServerTimeSync();  
     }
 
     static getInstance(): AtsService {
         if(atsServiceInstance === null) {
-            atsServiceInstance = new AtsService(serverUrl, clientId, secret);
+            atsServiceInstance = new AtsService(clientId, secret);
         }
 
         return atsServiceInstance;
@@ -153,41 +171,40 @@ export class AtsService {
     }
 
     get connected(): boolean {
-        return this._ws_connected || this._mqtt_connected;
+        return this._webSocketChannel.connected() || this._mqttChannel.connected();
     }
 
-    private init(): void {
-        this._socket = new SocketIO(this.serverUrl);
-        this.syncServerTime();
-        this._timeSynchronizationIntervalId = setInterval(this.syncServerTime.bind(this), 60000 * this._timeSynchronizationFrequency);
-        this._socket.on('connect', this.onSocketConnected.bind(this));
-        this._socket.on('disconnect', this.onSocketDisconnected.bind(this));
-        this._socket.on(ProtocolMesssages.Time, this.onReceiveTime.bind(this));
-        this._socket.on(ProtocolMesssages.Who, this.onReceiveWho.bind(this));
-        this._socket.on(ProtocolMesssages.Events, this.onReceiveEvents.bind(this));
-        this._socket.on(ProtocolMesssages.Sensors, this.onReceiveSensors.bind(this));
-        this._socket.connect();
-        console.log(`AtsService connecting to server ${this.serverUrl}`);
+    get locallyConnected(): boolean {
+        return this._webSocketChannel.connected();
     }
 
-    private connectToMQTT(): void {
-        let opts: ClientOptions = {
-            host: brokerUrl,
-            port: brokerPort,
-            retryOnDisconnect: true,
-            useSSL: false,
-            cleanSession: false,
-            clientId: clientId
-        };
+    get remotelyConnected(): boolean {
+        return this._mqttChannel.connected();
+    }
 
-        console.log('Connecting to MQTT broker...');
-        this._mqtt = new MQTTClient(opts);
-        this._mqtt.onConnectionFailure.on(this.onMqttConnectionFailure.bind(this));
-        this._mqtt.onConnectionSuccess.on(this.onMqttConnectionSuccess.bind(this));
-        this._mqtt.onConnectionLost.on(this.onMqttConnectionLost.bind(this));
-        this._mqtt.onMessageArrived.on(this.onMqttMessageArrived.bind(this));
+    private startWebSocketChannel(): void {
+        this._webSocketChannel = new WebSocketChannel(this.clientId);
+        this._webSocketChannel.onConnected(this.onWebSocketChannelConnected.bind(this));
+        this._webSocketChannel.onDisconnected(this.onWebSocketChannelDisconnected.bind(this));
+        this._webSocketChannel.onReceiveTime(this.onReceiveTime.bind(this));
+        this._webSocketChannel.onReceiveWho(this.onReceiveWho.bind(this));
+        this._webSocketChannel.onReceiveEvents(this.onReceiveEvents.bind(this));
+        this._webSocketChannel.onReceiveSensors(this.onReceiveSensors.bind(this));
+    }
 
-        this._mqtt.connect(mqttUser, mqttPass);
+    private startMQTTChannel(): void {
+        this._mqttChannel = new MQTTChannel(this.clientId);
+        this._mqttChannel.onConnected(this.onMQTTChannelConnected.bind(this));
+        this._mqttChannel.onDisconnected(this.onMQTTChannelDisconnected.bind(this));
+        this._mqttChannel.onReceiveTime(this.onReceiveTime.bind(this));
+        this._mqttChannel.onReceiveWho(this.onReceiveWho.bind(this));
+        this._mqttChannel.onReceiveEvents(this.onReceiveEvents.bind(this));
+        this._mqttChannel.onReceiveSensors(this.onReceiveSensors.bind(this));
+    }
+
+    private startServerTimeSync(): void {
+        const frequency: number = 60000 * this._timeSynchronizationFrequency; // minutes
+        this._timeSynchronizationIntervalId = setInterval(this.syncServerTime.bind(this), frequency); 
     }
 
     private getToken(): string {
@@ -197,55 +214,58 @@ export class AtsService {
         return code;
     }
 
-    private syncServerTime(): void {
-        const url = `${this.serverUrl}/uptime`;
-        request({ url, method: 'GET' }).then((res: HttpResponse) => {
-            const now = new Date();
-            this._timeDiff = now.getTime() - parseInt(res.content.toString());
-            this._lastTimeSynchronization = now;
-        }).catch((reason: any) => {
-            console.log(reason);
-        });
-    }
-
-    private reconnect(): void {
-        if(this._reconnectIntents > 5) {
-            clearInterval(this._timeSynchronizationIntervalId);
-            clearInterval(this._reconnectIntervalId);
-            this._reconnectIntents = 0;
-            this._reconnectIntervalId = setInterval(this.reconnect.bind(this), 60000 * 5);
-            // this.publish(AtsEvents.WEB_SOCKET_DISCONNECTED);
-            // this.init();
+    private getChannel(): Channel {
+        if(this._webSocketChannel.connected()) {
+            console.log('using WebSockets');
+            return this._webSocketChannel;
         } else {
-            this._reconnectIntents++;
-            this._socket.connect();
+            console.log('using MQTT');
+            return this._mqttChannel;
         }
     }
 
-    private onSocketConnected(): void {
-        this._ws_connected = true;
-        this._reconnectIntents = 0;
-        clearInterval(this._reconnectIntervalId);
+    private onWebSocketChannelConnected(): void {
+        if (!this._timeSynchronizationIntervalId) {
+            this.startServerTimeSync();
+        }
         this.publish(AtsEvents.WEB_SOCKET_CONNECTED);
     }
 
-    private onSocketDisconnected(): void {
-        this._ws_connected = false;
-        this._reconnectIntervalId = setInterval(this.reconnect.bind(this), 3000);
+    private onWebSocketChannelDisconnected(): void {
+        if(!this.connected) {
+            clearInterval(this._timeSynchronizationIntervalId);
+        }
         this.publish(AtsEvents.WEB_SOCKET_DISCONNECTED);
+    }
+
+    private onMQTTChannelConnected(): void {
+        if(!this._timeSynchronizationIntervalId) {
+            this.startServerTimeSync();
+        }
+        this.publish(AtsEvents.MQTT_CONNECTED);
+    }
+
+    private onMQTTChannelDisconnected(): void {
+        if(!this.connected) {
+            clearInterval(this._timeSynchronizationIntervalId);
+        }
+        this.publish(AtsEvents.MQTT_DISCONNECTED);
+    }
+
+    private syncServerTime(): void {
+        this.getChannel().getServerTime()
+            .then(this.onReceiveTime.bind(this));
     }
 
     private onReceiveTime(time: number): void {
         const serverTime = new Date(time * 1000);
         const localTime = new Date();
         this._timeDiff = localTime.getTime() - serverTime.getTime();
-        this._lastTimeSynchronization = localTime;
     }
 
     private onReceiveWho(): void {
-        const code = parseInt(this.getToken());
-        const payload = { code, clientId: this.clientId };
-        this._socket.emit(ProtocolMesssages.is, payload);
+        let token: string = this.getToken();
+        this.getChannel().sendIsMessage(token);
     }
 
     private payloadEventsIncludes(event: string): boolean {
@@ -257,31 +277,37 @@ export class AtsService {
         return false;
     }
 
+    private handleEventWithPayloadCode(data: any, event: string): void {
+        const d = data.toString();
+        const systemState = { state: 0, mode: 0, activedSensors: [] };
+        systemState.state = Number.parseInt(d.charAt(0), 32);
+        systemState.mode = Number.parseInt(d.charAt(1), 32);
+        const leftTimeout = Number.parseInt(d.charAt(2) + '' + d.charAt(3), 32);
+        const count = Number.parseInt(d.charAt(4) + '' + d.charAt(5), 32);
+        for(let i = 6; i < 6 + count * 2; i++) {
+            systemState.activedSensors.push(Number.parseInt(d.charAt(i++) + '' + d.charAt(i), 32));
+        }
+        const payload = { system: systemState, leftTimeout: leftTimeout };
+        this.publish(AtsEvents[event], payload);
+    }
+
     private onReceiveEvents(config: any): void {
         for(let event in config) {
             if (this.payloadEventsIncludes(event)) {
-                this._socket.on(config[event], (data) => {
-                    const d = data.toString();
-                    const systemState = { state: 0, mode: 0, activedSensors: [] };
-                    systemState.state = Number.parseInt(d.charAt(0), 32);
-                    systemState.mode = Number.parseInt(d.charAt(1), 32);
-                    const leftTimeout = Number.parseInt(d.charAt(2) + '' + d.charAt(3), 32);
-                    const count = Number.parseInt(d.charAt(4) + '' + d.charAt(5), 32);
-                    for(let i = 6; i < 6 + count * 2; i++) {
-                        systemState.activedSensors.push(Number.parseInt(d.charAt(i++) + '' + d.charAt(i), 32));
-                    }
-                    const payload = { system: systemState, leftTimeout: leftTimeout };
-                    this.publish(AtsEvents[event], payload);
-                });
+                if (this._webSocketChannel) {
+                    this._webSocketChannel.subscribe(config[event], (data: any) => this.handleEventWithPayloadCode.call(this, data, event));
+                }
+                if (this._mqttChannel) {
+                    this._mqttChannel.subscribe(event, (data: any) => this.handleEventWithPayloadCode.call(this, data, event));
+                }
             } else {
-                this._socket.on(config[event], data => this.publish(AtsEvents[event], data));
+                if (this._webSocketChannel) {
+                    this._webSocketChannel.subscribe(config[event], (data: any) => this.publish(AtsEvents[event], data));
+                }
+                if (this._mqttChannel) {
+                    this._mqttChannel.subscribe(event, (data: any) => this.publish(AtsEvents[event], data));
+                }
             }
-        }
-    }
-
-    private publish(event: string, data?: any): void {
-        if(AtsEvents[event] && this._eventHandlers[event]) {
-            this._eventHandlers[event].forEach(h => h(data));
         }
     }
 
@@ -293,227 +319,59 @@ export class AtsService {
         }
     }
 
-    private onMqttConnectionFailure(err: any): void {
-        console.log('MQTT connection failure', err);
-    }
-
-    private onMqttConnectionSuccess(): void {
-        this._mqtt_connected = true;
-        this.publish(AtsEvents.MQTT_CONNECTED);
-        console.log('Connected to MQTT', brokerUrl, brokerPort);
-        try {
-            let subOpts: SubscribeOptions = { qos: 0};
-            this._mqtt.subscribe(`${mqttTopic}/#`, subOpts);
-        } catch(e) {
-            console.log(e);
+    private publish(event: string, data?: any): void {
+        if(AtsEvents[event] && this._listeners[event]) {
+            this._listeners[event].forEach(h => h(data));
         }
-    }
-
-    private onMqttConnectionLost(err: any): void {
-        this._mqtt_connected = false;
-        this.publish(AtsEvents.MQTT_DISCONNECTED);
-        console.log('MQTT connection lost', err);
-    }
-
-    private onMqttMessageArrived(message: Message): void {
-        const topic: string = message.topic;
-        const event: string = topic.substr(mqttTopic.length + 1);
-        const payload: string = message.payload;
-        // if websocket is disconnected
-        if(!this._ws_connected) {
-            if(event == 'SENSORS') {
-                this.onReceiveSensors(JSON.parse(payload));
-            } else if (this.payloadEventsIncludes(event)) {
-                const systemState = { state: 0, mode: 0, activedSensors: [] };
-                systemState.state = Number.parseInt(payload.charAt(0), 32);
-                systemState.mode = Number.parseInt(payload.charAt(1), 32);
-                const leftTimeout = Number.parseInt(payload.charAt(2) + '' + payload.charAt(3), 32);
-                const count = Number.parseInt(payload.charAt(4) + '' + payload.charAt(5), 32);
-                for(let i = 6; i < 6 + count * 2; i++) {
-                    systemState.activedSensors.push(Number.parseInt(payload.charAt(i++) + '' + payload.charAt(i), 32));
-                }
-                const p = { system: systemState, leftTimeout: leftTimeout };
-                this.publish(AtsEvents[event], p);
-            } else {
-                this.publish(AtsEvents[event], payload);
-            }
-        }
-    }
-
-    private apiRequest(opts: HttpRequestOptions): Promise<void> {
-        return new Promise<void>((resolve, reject) => {
-            request(opts).then((res: HttpResponse) => {
-                switch (res.statusCode) {
-                    case 401:
-                    case 403:
-                        return reject({ error: AtsErrors.NOT_AUTHORIZED });
-
-                    case 409:
-                        return reject({ error: AtsErrors.INVALID_SYSTEM_STATE });
-
-                    case 204:
-                        return resolve();
-
-                    default:
-                        return reject({ error: AtsErrors.BAD_REQUEST });
-                }
-            }).catch((reason: any) => {
-                console.log(reason);
-                reject({ error: AtsErrors.WAS_A_PROBLEM });
-            });
-        });
     }
 
     getState(): Promise<SystemState> {
-        const url = `${this.serverUrl}/state`;
-        const method = 'GET';
-        const token = this.getToken();
-        const headers = { 'Authorization': `${this.clientId} ${token}` };
-        const opts: HttpRequestOptions = { url, method, headers };
-
-        return new Promise<SystemState>((resolve, reject) => {
-            request(opts).then((res: HttpResponse) => {
-                switch (res.statusCode) {
-                    case 403:
-                    case 401:
-                        return reject({ error: AtsErrors.NOT_AUTHORIZED });
-
-                    case 200:
-                    case 201:
-                    case 204:
-                        if (res.content) {
-                            const data: SystemState = res.content.toJSON();
-                            return resolve(data);
-                        }
-                        return reject({ error: AtsErrors.EMPTY_RESPONSE });
-
-                    default:
-                        return reject({ error: AtsErrors.WAS_A_PROBLEM });
-                }
-            }).catch((reason: any) => {
-                console.log(reason);
-                reject({ error: AtsErrors.WAS_A_PROBLEM });
-            });
-        });
+        let token: string = this.getToken();
+        return this.getChannel().getState(token);
     };
 
-    arm(mode: string, code?: string): Promise<void> {
-        const url = `${this.serverUrl}/arm`;
-        const method = 'PUT';
-        let content = `mode=${mode}`;
-        if(code) {
-            content += `&code=${code}`;
-        }
-        const token = this.getToken();
-        const headers = { 
-            'Authorization': `${this.clientId} ${token}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        };
-        const opts: HttpRequestOptions = { url, method, content, headers };
-
-        return this.apiRequest(opts);
+    arm(mode: number, code?: string): Promise<void> {
+        let token: string = this.getToken();
+        return this.getChannel().arm(token, mode, code);
     };
 
     disarm(code: string): Promise<void> {
-        const url = `${this.serverUrl}/disarm`;
-        const method = 'PUT';
-        const content = `code=${code}`;
-        const token = this.getToken();
-        const headers = {
-            'Authorization': `${this.clientId} ${token}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        };
-        const opts: HttpRequestOptions = { url, method, content, headers };
-
-        return this.apiRequest(opts);
+        let token: string = this.getToken();
+        return this.getChannel().disarm(token, code);
     };
 
     bypass (location: SensorLocation, code: string): Promise<void> {
-        const url = `${this.serverUrl}/bypass/one`;
-        const method = 'PUT';
-        let content = `location=${JSON.stringify(location)}`;
-        if(code) {
-            content += `&code=${code}`;
-        }
-        const token = this.getToken();
-        const headers = {
-            'Authorization': `${this.clientId} ${token}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        };
-        const opts: HttpRequestOptions = { url, method, content, headers };
-
-        return this.apiRequest(opts);
+        let token: string = this.getToken();
+        return this.getChannel().bypass(token, location, code);
     };
 
     bypassAll(locations: SensorLocation[], code: string): Promise<void> {
-        const url = `${this.serverUrl}/bypass/all`;
-        const method = 'PUT';
-        let content = `locations=${JSON.stringify(locations)}`;
-        if(code) {
-            content += `&code=${code}`;
-        }
-        const token = this.getToken();
-        const headers = {
-            'Authorization': `${this.clientId} ${token}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        };
-        const opts: HttpRequestOptions = { url, method, content, headers };
-
-        return this.apiRequest(opts);
+        let token: string = this.getToken();
+        return this.getChannel().bypassAll(token, locations, code);
     };
 
     clearBypass(code: string): Promise<void> {
-        const url = `${this.serverUrl}/unbypass/all`;
-        const method = 'PUT';
-        const content = `code=${code}`;
-        const token = this.getToken();
-        const headers = {
-            'Authorization': `${this.clientId} ${token}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        };
-        const opts: HttpRequestOptions = { url, method, content, headers };
-
-        return this.apiRequest(opts);
+        let token: string = this.getToken();
+        return this.getChannel().clearBypass(token, code);
     };
 
     clearBypassOne(location: SensorLocation, code: string): Promise<void> {
-        const url = `${this.serverUrl}/unbypass/one`;
-        const method = 'PUT';
-        let content = `location=${JSON.stringify(location)}`;
-        if(code) {
-            content += `&code=${code}`;
-        }
-        const token = this.getToken();
-        const headers = {
-            'Authorization': `${this.clientId} ${token}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        };
-        const opts: HttpRequestOptions = { url, method, content, headers };
-
-        return this.apiRequest(opts);
+        let token: string = this.getToken();
+        return this.getChannel().clearBypassOne(token, location, code);
     }
 
     programm(code: string): Promise<void> {
-        const url = `${this.serverUrl}/config/programm`;
-        const method = 'PUT';
-        const content = `code=${code}`;
-        const token = this.getToken();
-        const headers = {
-            'Authorization': `${this.clientId} ${token}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        };
-        const opts: HttpRequestOptions = { url, method, content, headers };
-
-        return this.apiRequest(opts);
+        let token: string = this.getToken();
+        return this.getChannel().programm(token, code);
     };
 
     subscribe(event: string, callback: (data: any) => void): void {
         if(AtsEvents[event]) {
-            if(!this._eventHandlers[event]) {
-                this._eventHandlers[event] = [];
+            if(!this._listeners[event]) {
+                this._listeners[event] = [];
             }
             if(typeof callback === 'function') {
-                this._eventHandlers[event].push(callback);
+                this._listeners[event].push(callback);
             }
         }
     };

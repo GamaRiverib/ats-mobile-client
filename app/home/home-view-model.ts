@@ -4,7 +4,7 @@ import { exitEvent, lowMemoryEvent, resumeEvent, ApplicationEventData, on as app
 import { Vibrate } from 'nativescript-vibrate';
 import * as Toast from "nativescript-toast";
 
-import { AtsService, AtsEvents, AtsStates, AtsModes, Sensor } from "~/services/ats-service";
+import { AtsService, AtsEvents, AtsStates, AtsModes, Sensor, SystemState } from "~/services/ats-service";
 
 const KEYS = {
     online: 'online',
@@ -30,6 +30,8 @@ const KEYS_ICONS = [
 const vibrator = new Vibrate();
 
 let timeoutIntervalId: number;
+
+let stateLoaded: boolean = false;
 
 export class HomeViewModel extends Observable {
 
@@ -61,11 +63,11 @@ export class HomeViewModel extends Observable {
         applicationOn(exitEvent, this.exitEventHandler.bind(this));
         applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));
 
-        setTimeout(() => ats.getState()
-            .then(data => this.onSystemStateChanged({ leftTimeout: 0, system: data }))
-            .catch(error => console.log(error)), 500);
-
-
+        if (ats.connected) {
+            console.log('ats.connected');
+            setTimeout(() => ats.getState().then(this.onSystemStateChanged.bind(this)), 500);
+        }
+        
         this.set(KEYS.loading, !ats.connected);
     }
 
@@ -136,15 +138,16 @@ export class HomeViewModel extends Observable {
     }
     
     private onSystemStateChanged(data: any): void {
-        if (data && data.system) {
-            
-            const systemState: number = data.system.state;
-            const systemMode: number = data.system.mode;
+        if (data) {
+            stateLoaded = true;
+            const system: SystemState = data.system ? data.system : data;
+            const systemState: number = system.state;
+            const systemMode: number = system.mode;
             const state: string = AtsStates[systemState];
             const mode: string = AtsModes[systemMode];
-            const activedSensors: Array<number> = data.system.activedSensors || [];
-            const activedSensorsCount: number = data.system.activedSensors ? data.system.activedSensors.length : 0;
-            const timeout: number | null = data.leftTimeout;
+            const activedSensors: Array<number> = system.activedSensors || [];
+            const activedSensorsCount: number = system.activedSensors ? system.activedSensors.length : 0;
+            const timeout: number | null = data.leftTimeout | system.leftTime;
 
             this.handleTimeout(systemState, timeout);
 
@@ -165,7 +168,7 @@ export class HomeViewModel extends Observable {
                     this.set(KEYS.message, timeout ? `${timeout || 0} seconds to arm` : 'Waiting confirmation...');
                     break;
                 case 3:
-                    this.set(KEYS.message, `${mode} mode`);
+                    this.set(KEYS.message, `${mode}`);
                     break;
                 case 4:
                     this.set(KEYS.message, timeout ? `${timeout || 0} seconds to disarm` : 'Waiting confirmation...');
@@ -214,21 +217,33 @@ export class HomeViewModel extends Observable {
         // showNotification('Connected');
         this.set(KEYS.online, true);
         this.set(KEYS.loading, false);
-        this.set(KEYS.message, 'Waiting state...');
-        this.ats.getState()
-            .catch(error => console.log(error));
+        console.log('onLocallyConnected');
+        if (!stateLoaded) {
+            this.set(KEYS.message, 'Waiting state...');
+            this.ats.getState()
+                .then(this.onSystemStateChanged.bind(this))
+                .catch(error => console.log(error));
+        }
     }
     
     private onDisconnected(data: any): void {
         // showNotification('Disconnected', 6000);
-        this.set(KEYS.online, false);
-        this.set(KEYS.loading, true);
+        if (!this.ats.connected) {
+            this.set(KEYS.online, false);
+            this.set(KEYS.loading, true);
+        }
     }
 
     private onRemotelyConnected(data: any): void {
         this.set(KEYS.online, true);
         this.set(KEYS.loading, false);
-        this.set(KEYS.message, 'Waiting state...');
+        console.log('onRemotelyConnected');
+        if(!stateLoaded) {
+            this.set(KEYS.message, 'Waiting state...');
+            this.ats.getState()
+                .then(this.onSystemStateChanged.bind(this))
+                .catch(error => console.log(error));
+        }
     }
 
     private onRemotelyDisconnected(data: any): void {
