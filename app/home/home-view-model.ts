@@ -121,17 +121,22 @@ export class HomeViewModel extends Observable {
         const _vm = this;
         if (leftTimeout > 0 && (state == 4 || state == 2)) {
             let _timeout: number = leftTimeout;
-            timeoutIntervalId = setInterval(() => {
-                if(_timeout > 0) {
-                    _timeout--;
-                    const message = `${_timeout || 0} seconds to ${state == 2 ? 'arm' : 'disarm'}`;
-                    _vm.set(KEYS.message, message);
-                } else {
-                    _timeout = null;
-                    _vm.set(KEYS.message, 'Waiting confirmation...');
-                    clearInterval(timeoutIntervalId);
-                }
-           }, 1000);
+            if (!timeoutIntervalId) {
+                timeoutIntervalId = setInterval(() => {
+                    if(_timeout > 0) {
+                        _timeout--;
+                        const message = `${_timeout || 0} seconds to ${state == 2 ? 'arm' : 'disarm'}`;
+                        _vm.set(KEYS.message, message);
+                    } else {
+                        _timeout = null;
+                        _vm.set(KEYS.message, 'Waiting confirmation...');
+                        clearInterval(timeoutIntervalId);
+                        _vm.ats.getState()
+                            .then(this.onSystemStateChanged.bind(this))
+                            .catch(error => console.log(error));
+                    }
+                }, 1000);
+            }
         } else {
             clearInterval(timeoutIntervalId);
         }

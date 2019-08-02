@@ -1,6 +1,6 @@
 {
   "nativescript": {
-    "id": "org.nativescript.atsmobileclient",
+    "id": "dev.gamarivera.ats",
     "tns-ios": {
       "version": "5.3.1"
     },
@@ -16,6 +16,7 @@
     "nativescript-intl": "^3.0.0",
     "nativescript-localize": "^4.1.1",
     "nativescript-mqtt": "^1.2.0",
+    "nativescript-plugin-firebase": "^9.0.4",
     "nativescript-socketio": "^3.2.1",
     "nativescript-statusbar": "^5.0.0",
     "nativescript-theme-core": "~1.0.4",

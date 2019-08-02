@@ -18,6 +18,8 @@ import { HomeViewModel } from "./home-view-model";
 import { AtsService, AtsModes, AtsEvents } from "../services/ats-service";
 import { ActionBar } from "tns-core-modules/ui/action-bar/action-bar";
 
+import { messaging, Message } from "nativescript-plugin-firebase/messaging";
+
 const atsService: AtsService = AtsService.getInstance();
 
 export function onNavigatingTo(args: NavigatedData) {
@@ -33,6 +35,34 @@ export function onNavigatingTo(args: NavigatedData) {
     atsService.subscribe(AtsEvents.WEB_SOCKET_DISCONNECTED, updateNavBarColor.bind(page, actionBar, atsService));
     atsService.subscribe(AtsEvents.MQTT_CONNECTED, updateNavBarColor.bind(page, actionBar, atsService));
     atsService.subscribe(AtsEvents.MQTT_DISCONNECTED, updateNavBarColor.bind(page, actionBar, atsService));
+
+    setTimeout(enablePushNotifications, 2000);
+}
+
+function enablePushNotifications(): void {
+    console.log(`Are push notifications enabled? ${messaging.areNotificationsEnabled()}`);
+    if(!messaging.areNotificationsEnabled()) {
+        console.log('Register for push notifications...');
+        messaging.registerForPushNotifications({
+            onPushTokenReceivedCallback: (token: string) => {
+                console.log('Firebase plugin received a push token: ', token);
+            },
+            onMessageReceivedCallback: (message: Message) => { 
+                console.log('Firebase message received', message.title, message.body);
+            },
+            showNotifications: true,
+            showNotificationsWhenInForeground: true
+        }).then(() => {
+            console.log('Registered for push notifications');
+            messaging.subscribeToTopic('ats')
+                .then(() => console.log('Registered to topic ats'))
+                .catch((reason: any) => console.log('Error', reason));
+        }).catch((reason: any) => console.log('Error', reason));
+    } else {
+        messaging.subscribeToTopic('ats')
+            .then(() => console.log('Registered to topic ats'))
+            .catch((reason: any) => console.log('Error', reason));
+    }
 }
 
 function updateNavBarColor(actionBar: ActionBar, ats: AtsService): void {
