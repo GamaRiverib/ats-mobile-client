@@ -131,14 +131,16 @@ export class HomeViewModel extends Observable {
                         _timeout = null;
                         _vm.set(KEYS.message, 'Waiting confirmation...');
                         clearInterval(timeoutIntervalId);
+                        timeoutIntervalId = undefined;
                         _vm.ats.getState()
                             .then(this.onSystemStateChanged.bind(this))
                             .catch(error => console.log(error));
                     }
                 }, 1000);
             }
-        } else {
+        } else if(timeoutIntervalId) {
             clearInterval(timeoutIntervalId);
+            timeoutIntervalId = undefined;
         }
     }
     
@@ -152,7 +154,7 @@ export class HomeViewModel extends Observable {
             const mode: string = AtsModes[systemMode];
             const activedSensors: Array<number> = system.activedSensors || [];
             const activedSensorsCount: number = system.activedSensors ? system.activedSensors.length : 0;
-            const timeout: number | null = data.leftTimeout | system.leftTime;
+            const timeout: number | null = data.leftTimeout | ((system.leftTime - system.uptime) / 1000);
 
             this.handleTimeout(systemState, timeout);
 

@@ -3,6 +3,7 @@ import { MQTTClient, ClientOptions, SubscribeOptions, Message } from 'nativescri
 
 const brokerUrl: string = '192.168.137.1';
 const brokerPort: number = 9001;
+const brokerSsl: boolean = false;
 const mqttUser: string = '';
 const mqttPass: string = '';
 const mqttTopic: string = 'ats';
@@ -34,7 +35,7 @@ export class MQTTChannel implements Channel {
             host: brokerUrl,
             port: brokerPort,
             retryOnDisconnect: true,
-            useSSL: false,
+            useSSL: brokerSsl,
             cleanSession: false,
             clientId: this.clientId
         };

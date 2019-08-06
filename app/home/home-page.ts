@@ -20,9 +20,14 @@ import { ActionBar } from "tns-core-modules/ui/action-bar/action-bar";
 
 import { messaging, Message } from "nativescript-plugin-firebase/messaging";
 
+import { Vibrate } from "nativescript-vibrate";
+
 const atsService: AtsService = AtsService.getInstance();
 
+const vibrator = new Vibrate();
+
 export function onNavigatingTo(args: NavigatedData) {
+
     const page = <Page>args.object;
 
     page.bindingContext = new HomeViewModel(atsService);
@@ -36,7 +41,7 @@ export function onNavigatingTo(args: NavigatedData) {
     atsService.subscribe(AtsEvents.MQTT_CONNECTED, updateNavBarColor.bind(page, actionBar, atsService));
     atsService.subscribe(AtsEvents.MQTT_DISCONNECTED, updateNavBarColor.bind(page, actionBar, atsService));
 
-    setTimeout(enablePushNotifications, 2000);
+    atsService.subscribe(AtsEvents.WEB_SOCKET_CONNECTED, () => setTimeout(enablePushNotifications, 2000));
 }
 
 function enablePushNotifications(): void {
@@ -49,6 +54,22 @@ function enablePushNotifications(): void {
             },
             onMessageReceivedCallback: (message: Message) => { 
                 console.log('Firebase message received', message.title, message.body);
+                if (message.data && message.data.system) {
+                    const state: number = parseInt(message.data.system.state);
+                    if (Number.isInteger(state)) {
+                        switch(state) {
+                            case 5: // ALARMED
+                                vibrator.vibrate([1000, 1000, 1000, 1000]);
+                                break;
+                            case 1: // DISARMED
+                                vibrator.vibrate(1000, 1000);
+                                break;
+                            default:
+                                vibrator.vibrate(1000);
+                                break;
+                        }
+                    }
+                }
             },
             showNotifications: true,
             showNotificationsWhenInForeground: true

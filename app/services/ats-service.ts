@@ -1,3 +1,5 @@
+import { connectionType, getConnectionType, startMonitoring, stopMonitoring }from "tns-core-modules/connectivity";
+
 import { getTotp } from './otp-provider';
 import { WebSocketChannel } from './ws-channel';
 import { MQTTChannel } from './mqtt-channel';
@@ -148,12 +150,17 @@ export class AtsService {
     private _listeners: any = {};
 
     private constructor(private clientId: string, private secret: string) {
+
         this.startWebSocketChannel();
+
         this.startMQTTChannel();
 
-        this._webSocketChannel.connect();
-        const m: Channel = this._mqttChannel;
-        setTimeout(m.connect.bind(m), 1000); // 1 second delay
+        this.tryConnect(getConnectionType());
+
+        startMonitoring(this.tryConnect.bind(this));
+        
+        // TODO: Explicitly stopping the monitoring / handle app events
+        // stopMonitoring();
 
         this.startServerTimeSync();  
     }
@@ -180,6 +187,31 @@ export class AtsService {
 
     get remotelyConnected(): boolean {
         return this._mqttChannel.connected();
+    }
+
+    private tryConnect(connType: connectionType): void {
+        console.log({connType});
+        switch (connType) {
+            case connectionType.none:
+                // TODO: show message.
+                console.log("No connection");
+                break;
+            case connectionType.wifi:
+                // Denotes a WiFi connection.
+                console.log("WiFi connection, try connect to local server");
+                this._webSocketChannel.connect();
+                const m: Channel = this._mqttChannel;
+                setTimeout(m.connect.bind(m), 2000); // 2 second delay
+                break;
+            case connectionType.mobile:
+                console.log("Mobile connection, try connect to remote server");
+                this._mqttChannel.connect();
+                const w: Channel = this._webSocketChannel;
+                setTimeout(w.connect.bind(w), 2000);
+                break;
+            default:
+                break;
+        }
     }
 
     private startWebSocketChannel(): void {
