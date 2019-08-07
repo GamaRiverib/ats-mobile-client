@@ -4,7 +4,6 @@
     loaded="onLoaded"
     xmlns="http://www.nativescript.org/tns.xsd" 
     xmlns:x="nativescript-statusbar">
-
     <x:StatusBar ios:barStyle="light" barColor="#0D5615" />
     <Page.actionBar>
         <ActionBar title="Sensors" icon="" class="action-bar">
@@ -34,7 +33,6 @@
                         <Label
                             text="{{ name }}"
                             col="1"
-                            colSpan="2"
                             class="h5 m-l-5 m-t-15"
                         />
                         <Label
@@ -44,6 +42,13 @@
                             horizontalAlignment="left"
                             verticalAlignment="bottom"
                             class="text-muted m-l-5 m-b-5"
+                        />
+                        <Label 
+                            text="{{ online ? '&#xf1eb;' : '&#xf127;' }}"
+                            col="2"
+                            horizontalAlignment="right"
+                            class="fas m-r-20 m-t-15"
+                            color="{{ online, online ? '#007f0e' : '#d9534f' }}"
                         />
                         <Label
                             text="{{ group }}"

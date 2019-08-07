@@ -26,6 +26,8 @@ const atsService: AtsService = AtsService.getInstance();
 
 const vibrator = new Vibrate();
 
+let subscribedPushNotifications: boolean = false;
+
 export function onNavigatingTo(args: NavigatedData) {
 
     const page = <Page>args.object;
@@ -79,9 +81,12 @@ function enablePushNotifications(): void {
                 .then(() => console.log('Registered to topic ats'))
                 .catch((reason: any) => console.log('Error', reason));
         }).catch((reason: any) => console.log('Error', reason));
-    } else {
+    } else if(!subscribedPushNotifications) {
         messaging.subscribeToTopic('ats')
-            .then(() => console.log('Registered to topic ats'))
+            .then(() => {
+                subscribedPushNotifications = true;
+                console.log('Registered to topic ats');
+            })
             .catch((reason: any) => console.log('Error', reason));
     }
 }

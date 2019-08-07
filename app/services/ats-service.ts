@@ -43,7 +43,10 @@ export const AtsEvents = {
     WEB_SOCKET_CONNECTED: 'WEB_SOCKET_CONNECTED',
     WEB_SOCKET_DISCONNECTED: 'WEB_SOCKET_DISCONNECTED',
     MQTT_CONNECTED: 'MQTT_CONNECTED',
-    MQTT_DISCONNECTED: 'MQTT_DISCONNECTED'
+    MQTT_DISCONNECTED: 'MQTT_DISCONNECTED',
+    SERVER_LWT_ONLINE: 'SERVER_LWT_ONLINE',
+    SERVER_LWT_OFFLINE: 'SERVER_LWT_OFFLINE',
+    SENSORS_UPDATED: 'SENSORS_UPDATED'
 };
 
 export const ProtocolMesssages = {
@@ -93,6 +96,7 @@ export interface Sensor {
     group: SensorGroup;
     bypass: boolean;
     chime?: string;
+    online?: boolean;
 }
 
 export interface SystemState {
@@ -190,7 +194,6 @@ export class AtsService {
     }
 
     private tryConnect(connType: connectionType): void {
-        console.log({connType});
         switch (connType) {
             case connectionType.none:
                 // TODO: show message.
@@ -232,6 +235,7 @@ export class AtsService {
         this._mqttChannel.onReceiveWho(this.onReceiveWho.bind(this));
         this._mqttChannel.onReceiveEvents(this.onReceiveEvents.bind(this));
         this._mqttChannel.onReceiveSensors(this.onReceiveSensors.bind(this));
+        (this._mqttChannel as MQTTChannel).onLWT(this.onLWT.bind(this));
     }
 
     private startServerTimeSync(): void {
@@ -344,10 +348,21 @@ export class AtsService {
     }
 
     private onReceiveSensors(sensors: any): void {
+        console.log(sensors);
         if (sensors && Array.isArray(sensors)) {
             this._sensors = sensors;
         } else {
             this._sensors = [];
+        }
+        this.publish(AtsEvents.SENSORS_UPDATED, this._sensors);
+    }
+
+    private onLWT(online: boolean): void {
+        console.log('onLWT', online);
+        if (online) {
+            this.publish(AtsEvents.SERVER_LWT_ONLINE);
+        } else {
+            this.publish(AtsEvents.SERVER_LWT_OFFLINE);
         }
     }
 

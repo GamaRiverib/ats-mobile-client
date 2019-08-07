@@ -1,6 +1,7 @@
-import { Observable, fromObject, EventData, PropertyChangeData } from "tns-core-modules/data/observable";
+import { Observable, fromObject, PropertyChangeData } from "tns-core-modules/data/observable";
+import { exitEvent, lowMemoryEvent, resumeEvent, ApplicationEventData, on as applicationOn } from "tns-core-modules/application";
 import { AtsService, Sensor, AtsEvents } from "~/services/ats-service";
-import { ObservableArray, ChangedData } from "tns-core-modules/data/observable-array/observable-array";
+import { ObservableArray } from "tns-core-modules/data/observable-array/observable-array";
 import { prompt, PromptOptions, inputType, PromptResult } from "tns-core-modules/ui/dialogs/dialogs";
 import * as Toast from "nativescript-toast";
 
@@ -24,11 +25,13 @@ const SensorGroupFriendlyNames = [
 ];
 
 interface SensorData {
+    id: string;
     name: string;
     type: string;
     group: string;
     actived: boolean;
     bypass: boolean;
+    online: boolean;
 }
 
 export class SensorsViewModel extends Observable { 
@@ -41,6 +44,20 @@ export class SensorsViewModel extends Observable {
     constructor(private ats: AtsService, private activedSensors?: Array<number>) {
         super();
 
+        this.set(KEYS.sensors, this._sensors);
+
+        this.ats.subscribe(AtsEvents.SYSTEM_STATE_CHANGED, this.onSystemStateChanged.bind(this));
+        this.ats.subscribe(AtsEvents.SENSOR_ACTIVED, this.onSensorActived.bind(this));
+        this.ats.subscribe(AtsEvents.SENSORS_UPDATED, this.updateSensors.bind(this));
+
+        this.configureSensors();
+
+        applicationOn(resumeEvent, this.resumeEventHandler.bind(this));
+        applicationOn(exitEvent, this.exitEventHandler.bind(this));
+        applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));
+    }
+
+    private configureSensors(): void {
         for (let i = 0; i < this.ats.sensors.length; i++) {
             const s: Sensor = this.ats.sensors[i];
             let actived: boolean = false;
@@ -53,11 +70,13 @@ export class SensorsViewModel extends Observable {
                 }
             });
             let sensor: SensorData = {
+                id: `${s.location.mac}:${s.location.pin}`,
                 name: s.name,
                 type: SensorTypesFriendlyNames[s.type],
                 group: SensorGroupFriendlyNames[s.group],
                 actived,
-                bypass: s.bypass
+                bypass: s.bypass,
+                online: s.online || false
             };
             let sensorObservable = fromObject(sensor);
             sensorObservable.on(Observable.propertyChangeEvent, (data: PropertyChangeData) => {
@@ -95,11 +114,25 @@ export class SensorsViewModel extends Observable {
             });
             this._sensors.push(sensorObservable);
         }
+    }
 
-        this.set(KEYS.sensors, this._sensors);
-
-        this.ats.subscribe(AtsEvents.SYSTEM_STATE_CHANGED, this.onSystemStateChanged.bind(this));
-        this.ats.subscribe(AtsEvents.SENSOR_ACTIVED, this.onSensorActived.bind(this));
+    private updateSensors(sensors: Sensor[]): void {
+        console.log(this._sensors);
+        for (let i = 0; i < sensors.length; i++) {
+            const s: Sensor = this.ats.sensors[i];
+            this._sensors.forEach((sensorData: SensorData) => {
+                const id: string = `${s.location.mac}:${s.location.pin}`;
+                console.log(id);
+                if(sensorData.id == id) {
+                    sensorData.name = s.name;
+                    sensorData.type = SensorTypesFriendlyNames[s.type];
+                    sensorData.group = SensorGroupFriendlyNames[s.group];
+                    sensorData.bypass = s.bypass;
+                    sensorData.online = s.online || false;
+                    return;
+                }
+            });
+        }
     }
 
     private handleError(reason: { error: number}): void {
@@ -155,7 +188,35 @@ export class SensorsViewModel extends Observable {
         this.set(KEYS.sensors, this._sensors);
     }
 
-    private onSensorActived(data: any): void {
-        console.log('onSensorActived', data);
+    private onSensorActived(data: { sensor: number, value: number }): void {
+        if (data.sensor >= 0 && data.sensor < this._sensors.length) {
+            const s: SensorData = this._sensors.getItem(data.sensor);
+            s.actived = data.value == 1;
+            s.online = true;
+        }
+    }
+
+    private resumeEventHandler(args: ApplicationEventData): void {
+        console.log('resumeEventHandler');
+    }
+
+    /*private suspendEventHandler(args: ApplicationEventData): void {
+        console.log('suspendEventHandler');
+        clearInterval(this._intervalId);
+    }*/
+
+    private exitEventHandler(args: ApplicationEventData): void {
+        console.log('exitEventHandler');
+        this._sensors.forEach((o: Observable) => {
+            if (o.hasListeners(Observable.propertyChangeEvent)) {
+                o.off(Observable.propertyChangeEvent);
+            }
+            o = null;
+        });
+        this._sensors = null;
+    }
+
+    private lowMemoryEventHandler(args: ApplicationEventData): void {
+        console.log('lowMemoryEventHandler');
     }
 }

@@ -24,6 +24,8 @@ export class MQTTChannel implements Channel {
     private _receiveEventsHandler: (config: any) => void = null;
     private _receiveSensorsHandler: (sensors: any) => void = null;
 
+    private _lwtHandler: (online: boolean) => void = null;
+
     private _listeners: { [event: string]: (data: any) => void } = {};
 
     constructor(private clientId: string) {
@@ -86,6 +88,11 @@ export class MQTTChannel implements Channel {
             }
         } else if(event == 'EVENTS') {
             this._receiveEventsHandler(JSON.parse(payload));
+        } else if(event == 'LWT') {
+            if (this._lwtHandler) {
+                const online: boolean = payload.toLowerCase() == 'online';
+                this._lwtHandler(online);
+            }
         } else if (this._listeners[event]) {
             this._listeners[event](payload);
         }
@@ -352,6 +359,10 @@ export class MQTTChannel implements Channel {
 
     subscribe(topic: string, callback: (data: any) => void): void {
         this._listeners[topic] = callback;
+    }
+
+    onLWT(handler: (online: boolean) => void): void {
+        this._lwtHandler = handler;
     }
 
 }
