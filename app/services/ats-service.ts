@@ -146,6 +146,7 @@ export class AtsService {
     private _mqttChannel: Channel;
 
     private _timeDiff: number = 0;
+    private _lastTimeSynchronization: Date | null = null;
     private _timeSynchronizationFrequency: number = 10;
     private _timeSynchronizationIntervalId: number = null;
 
@@ -261,7 +262,7 @@ export class AtsService {
     }
 
     private onWebSocketChannelConnected(): void {
-        if (!this._timeSynchronizationIntervalId) {
+        if (!this._timeSynchronizationIntervalId || !this._lastTimeSynchronization) {
             this.startServerTimeSync();
         }
         this.publish(AtsEvents.WEB_SOCKET_CONNECTED);
@@ -270,12 +271,14 @@ export class AtsService {
     private onWebSocketChannelDisconnected(): void {
         if(!this.connected) {
             clearInterval(this._timeSynchronizationIntervalId);
+            this._timeSynchronizationIntervalId = null;
+            this._lastTimeSynchronization = null;
         }
         this.publish(AtsEvents.WEB_SOCKET_DISCONNECTED);
     }
 
     private onMQTTChannelConnected(): void {
-        if(!this._timeSynchronizationIntervalId) {
+        if(!this._timeSynchronizationIntervalId || !this._lastTimeSynchronization) {
             this.startServerTimeSync();
         }
         this.publish(AtsEvents.MQTT_CONNECTED);
@@ -284,6 +287,8 @@ export class AtsService {
     private onMQTTChannelDisconnected(): void {
         if(!this.connected) {
             clearInterval(this._timeSynchronizationIntervalId);
+            this._timeSynchronizationIntervalId = null;
+            this._lastTimeSynchronization = null;
         }
         this.publish(AtsEvents.MQTT_DISCONNECTED);
     }
@@ -297,11 +302,29 @@ export class AtsService {
         const serverTime = new Date(time * 1000);
         const localTime = new Date();
         this._timeDiff = localTime.getTime() - serverTime.getTime();
+        this._lastTimeSynchronization = localTime;
     }
 
     private onReceiveWho(): void {
-        let token: string = this.getToken();
-        this.getChannel().sendIsMessage(token);
+        let needSync: boolean = false;
+        let wait: number = 10;
+        if(this._lastTimeSynchronization) {
+            const frequency: number = 60000 * this._timeSynchronizationFrequency; // minutes
+            const localTime = new Date();
+            if(localTime.getTime() - this._lastTimeSynchronization.getTime() > frequency) {
+                needSync = true;
+            }
+        } else {
+            needSync = true;
+        }
+        if (needSync) {
+            this.syncServerTime();
+            wait = 2000;
+        }
+        setTimeout(() => {
+            let token: string = this.getToken();
+            this.getChannel().sendIsMessage(token);
+        }, wait);
     }
 
     private payloadEventsIncludes(event: string): boolean {

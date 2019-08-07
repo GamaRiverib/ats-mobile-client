@@ -85,7 +85,7 @@ export class SensorsViewModel extends Observable {
                         this._canceled = false;
                         return true;
                     }
-                    this.requestCode().then(() => {
+                    this.requestCode(data.value).then(() => {
                         if(data.value) {
                             this.ats.bypass(s.location, this._code)
                             .then(() => {
@@ -152,13 +152,17 @@ export class SensorsViewModel extends Observable {
         toast.show();
     }
 
-    private requestCode(): Promise<void> {
+    private requestCode(bypass?: boolean): Promise<void> {
+        let title: string = 'Change bypass';
+        if (bypass !== undefined) {
+            title = bypass ? 'Bypass sensor' : 'Clear bypass';
+        }
         const promptOptions: PromptOptions = {
-            title: "Disarm system",
-            message: "Type your password",
-            okButtonText: "Ok",
-            cancelButtonText: "Cancel",
-            defaultText: "",
+            title: title,
+            message: 'Type your password',
+            okButtonText: 'Ok',
+            cancelButtonText: 'Cancel',
+            defaultText: '',
             inputType: inputType.password
         };
         return new Promise<void>((resolve, reject) => {
@@ -207,13 +211,15 @@ export class SensorsViewModel extends Observable {
 
     private exitEventHandler(args: ApplicationEventData): void {
         console.log('exitEventHandler');
-        this._sensors.forEach((o: Observable) => {
-            if (o.hasListeners(Observable.propertyChangeEvent)) {
-                o.off(Observable.propertyChangeEvent);
-            }
-            o = null;
-        });
-        this._sensors = null;
+        if(this._sensors) {
+            this._sensors.forEach((o: Observable) => {
+                if (o.hasListeners(Observable.propertyChangeEvent)) {
+                    o.off(Observable.propertyChangeEvent);
+                }
+                o = null;
+            });
+            this._sensors = new ObservableArray([]);
+        }
     }
 
     private lowMemoryEventHandler(args: ApplicationEventData): void {

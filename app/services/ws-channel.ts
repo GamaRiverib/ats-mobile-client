@@ -59,8 +59,9 @@ export class WebSocketChannel implements Channel {
     }
 
     private reconnect(): void {
-        if(this._reconnectIntents > 10) {
+        if(this._reconnectIntents > 15) {
             clearInterval(this._reconnectIntervalId);
+            this._reconnectIntervalId = null;
             this._reconnectIntents = 0;
             // this._reconnectIntervalId = setInterval(this.reconnect.bind(this), 60000 * 5);
             if(this._disconnectedHandler) {
@@ -76,6 +77,7 @@ export class WebSocketChannel implements Channel {
         this._connected = true;
         this._reconnectIntents = 0;
         clearInterval(this._reconnectIntervalId);
+        this._reconnectIntervalId = null;
         if(this._connectedHandler) {
             this._connectedHandler();
         }

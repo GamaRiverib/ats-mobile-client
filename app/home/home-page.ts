@@ -81,7 +81,7 @@ function enablePushNotifications(): void {
                 .then(() => console.log('Registered to topic ats'))
                 .catch((reason: any) => console.log('Error', reason));
         }).catch((reason: any) => console.log('Error', reason));
-    } else if(!subscribedPushNotifications) {
+    } else /* if(!subscribedPushNotifications) */ {
         messaging.subscribeToTopic('ats')
             .then(() => {
                 subscribedPushNotifications = true;
