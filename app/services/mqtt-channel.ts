@@ -1,15 +1,20 @@
 import { Channel, SystemState, SensorLocation, AtsErrors } from './ats-service';
 import { MQTTClient, ClientOptions, SubscribeOptions, Message } from 'nativescript-mqtt';
 
-const brokerUrl: string = '192.168.137.1';
-const brokerPort: number = 9001;
-const brokerSsl: boolean = false;
-const mqttUser: string = '';
-const mqttPass: string = '';
+const brokerUrl: string = 'postman.cloudmqtt.com';
+const brokerPort: number = 30115;
+const brokerSsl: boolean = true;
+const mqttUser: string = 'yqdiugmw';
+const mqttPass: string = '2sXis5gMuqK7';
 const mqttTopic: string = 'ats';
 const mqttCmnd: string = 'cmnd';
 
 const timeout: number = 30000;
+
+interface Listener {
+    topic: string;
+    callback: [(data: any) => void];
+}
 
 export class MQTTChannel implements Channel {
 
@@ -26,7 +31,7 @@ export class MQTTChannel implements Channel {
 
     private _lwtHandler: (online: boolean) => void = null;
 
-    private _listeners: { [event: string]: (data: any) => void } = {};
+    private _listeners: Listener[] = [];
 
     constructor(private clientId: string) {
         this.init();
@@ -39,7 +44,7 @@ export class MQTTChannel implements Channel {
             retryOnDisconnect: true,
             useSSL: brokerSsl,
             cleanSession: false,
-            clientId: this.clientId
+            clientId: `${this.clientId}`
         };
 
         this._mqtt = new MQTTClient(opts);
@@ -61,7 +66,13 @@ export class MQTTChannel implements Channel {
         console.log('Connected to MQTT', brokerUrl, brokerPort);
         try {
             let subOpts: SubscribeOptions = { qos: 0};
-            this._mqtt.subscribe(`${mqttTopic}/#`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/TIME`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/SENSORS`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/EVENTS`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/LWT`, subOpts);
+            // this._mqtt.subscribe(`${mqttTopic}/RESULT/#`, subOpts);
+            // this._mqtt.subscribe(`${mqttTopic}/STATE/#`, subOpts);
+            
         } catch(e) {
             console.log(e);
         }
@@ -77,62 +88,80 @@ export class MQTTChannel implements Channel {
 
     private onMqttMessageArrived(message: Message): void {
         const topic: string = message.topic;
-        const event: string = topic.substr(mqttTopic.length + 1);
+        const subTopic: string = topic.substr(mqttTopic.length + 1);
         const payload: string = message.payload;
-        if(event == 'SENSORS') {
-            this._receiveSensorsHandler(JSON.parse(payload));
-        } else if(event == 'TIME') {
+        if(subTopic == 'SENSORS') {
+            const sensors = JSON.parse(payload);
+            this._receiveSensorsHandler(Array.isArray(sensors) ? sensors : []);
+        } else if(subTopic == 'TIME') {
             let time: number = Number.parseInt(payload);
             if (Number.isInteger(time) && time > 0) {
                 this._receiveTimeHandler(time);
             }
-        } else if(event == 'EVENTS') {
+        } else if(subTopic == 'EVENTS') {
             this._receiveEventsHandler(JSON.parse(payload));
-        } else if(event == 'LWT') {
+        } else if(subTopic == 'LWT') {
             if (this._lwtHandler) {
                 const online: boolean = payload.toLowerCase() == 'online';
                 this._lwtHandler(online);
             }
-        } else if (this._listeners[event]) {
-            this._listeners[event](payload);
+        } else if(subTopic.startsWith('RESULT/')) {
+            const messageId: string = subTopic.split('/')[1];
+            this.listeners(messageId, payload);
+            this.forgetResult(messageId);
+        } else if(subTopic.startsWith('STATE/')) {
+            const event: string = subTopic.split('/')[1];
+            this.listeners(event, payload);
         }
     }
 
-    private getMQTTRequest<T>(command: string, parser: (data: any) => T, token?: string): Promise<T> {
-        return new Promise<T>((resolve, reject) => {
-            if (!this._connected) {
-                reject({ error: AtsErrors.NOT_CONNECTED });
+    private getListenerIndex(topic: string): number {
+        let index: number = -1;
+        this._listeners.forEach((l: Listener, i: number) => {
+            if(l.topic == topic) {
+                index = i;
+                return;
             }
-            let messageId: string;
-            if(token) {
-                messageId = `${token}${Date.now().toString().substr(9)}`;
-            } else {
-                messageId = `${Date.now().toString().substr(3)}`;
-            }
-            let message: Message = {
-                topic: `${mqttTopic}/${mqttCmnd}/${command}`,
-                payload: messageId,
-                bytes: null,
-                qos: 0,
-                retained: false
-            };
-
-            let subTopic: string = `RESULT/${messageId}`;
-
-            this.subscribe(subTopic, (data: any) => {
-                delete this._listeners[subTopic];
-                clearTimeout(timeoutId);
-                const response: T = parser(data);
-                resolve(response);
-            });
-
-            let timeoutId = setTimeout(() => {
-                delete this._listeners[subTopic];
-                reject({ error: AtsErrors.TIMEOUT });
-            }, timeout);
-
-            this._mqtt.publish(message);
         });
+        return index;
+    }
+
+    private addListener(topic: string, callback: (data: any) => void): void {
+        let index: number = this.getListenerIndex(topic);
+        if(index >= 0) {
+            this._listeners[index].callback.push(callback);
+        } else {
+            this._listeners.push({ topic, callback: [callback] });
+        }
+    }
+
+    private removeAllListeners(topic: string): void {
+        let index: number = this.getListenerIndex(topic);
+        if(index >= 0) {
+            this._listeners.slice(index, 1);
+        }
+    }
+
+    private listeners(topic: string, data: any): void {
+        let index: number = this.getListenerIndex(topic);
+        if(index >= 0) {
+            const listeners = this._listeners[index].callback;
+            listeners.forEach((l: (data: any) => void) => {
+                if (l) {
+                    l(data);
+                }
+            });
+        }
+    }
+
+    private waitResult(messageId: string, callback: (data: any) => void): void {
+        this._mqtt.subscribe(`${mqttTopic}/RESULT/${messageId}`, { qos: 0 });
+        this.addListener(messageId, callback);
+    }
+
+    private forgetResult(messageId: string): void {
+        this.removeAllListeners(messageId);
+        this._mqtt.unsubscribe(`${mqttTopic}/RESULT/${messageId}`);
     }
 
     connect(): void {
@@ -153,7 +182,36 @@ export class MQTTChannel implements Channel {
     }
     
     getServerTime(): Promise<number> {
-        return this.getMQTTRequest<number>('TIME', Number.parseInt);
+        return new Promise<number>((resolve, reject) => {
+            if (!this._connected) {
+                reject({ error: AtsErrors.NOT_CONNECTED });
+            }
+            let messageId: string = `${Date.now().toString().substr(3)}`;
+            
+            let message: Message = {
+                topic: `${mqttTopic}/${mqttCmnd}/TIME`,
+                payload: messageId,
+                bytes: null,
+                qos: 0,
+                retained: false
+            };
+
+            const callback = (data: any) => {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+                const response: number = Number.parseInt(data);
+                resolve(response);
+            };
+
+            this.waitResult(messageId, callback);
+
+            let timeoutId = setTimeout(() => {
+                this.forgetResult(messageId);
+                reject({ error: AtsErrors.TIMEOUT });
+            }, timeout);
+
+            this._mqtt.publish(message);
+        });
     }
 
     sendIsMessage(token: string): void {
@@ -161,7 +219,40 @@ export class MQTTChannel implements Channel {
     }
 
     getState(token: string): Promise<SystemState> {
-        return this.getMQTTRequest<SystemState>('STATE', JSON.parse, token);
+        return new Promise<SystemState>((resolve, reject) => {
+            if (!this._connected) {
+                reject({ error: AtsErrors.NOT_CONNECTED });
+            }
+            let messageId: string;
+            if(token) {
+                messageId = `${token}${Date.now().toString().substr(9)}`;
+            } else {
+                messageId = `${Date.now().toString().substr(3)}`;
+            }
+            let message: Message = {
+                topic: `${mqttTopic}/${mqttCmnd}/STATE`,
+                payload: messageId,
+                bytes: null,
+                qos: 0,
+                retained: false
+            };
+
+            const callback = (data: any): void => {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+                const response: SystemState = JSON.parse(data);
+                resolve(response);
+            };
+
+            this.waitResult(messageId, callback);
+
+            let timeoutId = setTimeout(() => {
+                this.forgetResult(messageId);
+                reject({ error: AtsErrors.TIMEOUT });
+            }, timeout);
+
+            this._mqtt.publish(message);
+        });
     }
 
     arm(token: string, mode: number, code?: string): Promise<void> {
@@ -183,20 +274,19 @@ export class MQTTChannel implements Channel {
                 retained: false
             };
 
-            let subTopic: string = `RESULT/${messageId}`;
-
-            this.subscribe(subTopic, (data: any) => {
-                delete this._listeners[subTopic];
+            const callback = (data: any) => {
                 clearTimeout(timeoutId);
                 if(data && data.toString() == 'TRUE') {
                     resolve();
                 } else {
                     reject();
                 }
-            });
+            };
+
+            this.waitResult(messageId, callback);
 
             let timeoutId = setTimeout(() => {
-                delete this._listeners[subTopic];
+                this.forgetResult(messageId);
                 reject({ error: AtsErrors.TIMEOUT });
             }, timeout);
 
@@ -223,20 +313,19 @@ export class MQTTChannel implements Channel {
                 retained: false
             };
 
-            let subTopic: string = `RESULT/${messageId}`;
-
-            this.subscribe(subTopic, (data: any) => {
-                delete this._listeners[subTopic];
+            const callback = (data: any) => {
                 clearTimeout(timeoutId);
                 if(data && data.toString() == 'TRUE') {
                     resolve();
                 } else {
                     reject();
                 }
-            });
+            };
+
+            this.waitResult(messageId, callback);
 
             let timeoutId = setTimeout(() => {
-                delete this._listeners[subTopic];
+                this.forgetResult(messageId);
                 reject({ error: AtsErrors.TIMEOUT });
             }, timeout);
 
@@ -263,20 +352,19 @@ export class MQTTChannel implements Channel {
                 retained: false
             };
 
-            let subTopic: string = `RESULT/${messageId}`;
-
-            this.subscribe(subTopic, (data: any) => {
-                delete this._listeners[subTopic];
+            const callback = (data: any) => {
                 clearTimeout(timeoutId);
                 if(data && data.toString() == 'TRUE') {
                     resolve();
                 } else {
                     reject();
                 }
-            });
+            };
+
+            this.waitResult(messageId, callback);
 
             let timeoutId = setTimeout(() => {
-                delete this._listeners[subTopic];
+                this.forgetResult(messageId);
                 reject({ error: AtsErrors.TIMEOUT });
             }, timeout);
 
@@ -316,20 +404,19 @@ export class MQTTChannel implements Channel {
                 retained: false
             };
 
-            let subTopic: string = `RESULT/${messageId}`;
-
-            this.subscribe(subTopic, (data: any) => {
-                delete this._listeners[subTopic];
+            const callback = (data: any) => {
                 clearTimeout(timeoutId);
                 if(data && data.toString() == 'TRUE') {
                     resolve();
                 } else {
                     reject();
                 }
-            });
+            };
+
+            this.waitResult(messageId, callback);
 
             let timeoutId = setTimeout(() => {
-                delete this._listeners[subTopic];
+                this.forgetResult(messageId);
                 reject({ error: AtsErrors.TIMEOUT });
             }, timeout);
 
@@ -358,7 +445,8 @@ export class MQTTChannel implements Channel {
     }
 
     subscribe(topic: string, callback: (data: any) => void): void {
-        this._listeners[topic] = callback;
+        this._mqtt.subscribe(`${mqttTopic}/STATE/${topic}`, { qos: 0 });
+        this.addListener(topic, callback);
     }
 
     onLWT(handler: (online: boolean) => void): void {

@@ -2,7 +2,7 @@ import { Channel, SystemState, SensorLocation, AtsErrors, ProtocolMesssages } fr
 import { SocketIO } from 'nativescript-socketio';
 import { HttpRequestOptions, HttpResponse, request } from "tns-core-modules/http/http";
 
-const serverUrl: string = 'http://192.168.137.1:3000';
+const serverUrl: string = 'http://192.168.0.117:3000';
 
 export class WebSocketChannel implements Channel {
 

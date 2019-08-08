@@ -1,5 +1,5 @@
 import { Observable, fromObject, PropertyChangeData } from "tns-core-modules/data/observable";
-import { exitEvent, lowMemoryEvent, resumeEvent, ApplicationEventData, on as applicationOn } from "tns-core-modules/application";
+// import { exitEvent, lowMemoryEvent, resumeEvent, ApplicationEventData, on as applicationOn } from "tns-core-modules/application";
 import { AtsService, Sensor, AtsEvents } from "~/services/ats-service";
 import { ObservableArray } from "tns-core-modules/data/observable-array/observable-array";
 import { prompt, PromptOptions, inputType, PromptResult } from "tns-core-modules/ui/dialogs/dialogs";
@@ -44,6 +44,10 @@ export class SensorsViewModel extends Observable {
     constructor(private ats: AtsService, private activedSensors?: Array<number>) {
         super();
 
+        if(!this._sensors) {
+            this._sensors = new ObservableArray([]);
+        }
+
         this.set(KEYS.sensors, this._sensors);
 
         this.ats.subscribe(AtsEvents.SYSTEM_STATE_CHANGED, this.onSystemStateChanged.bind(this));
@@ -52,9 +56,9 @@ export class SensorsViewModel extends Observable {
 
         this.configureSensors();
 
-        applicationOn(resumeEvent, this.resumeEventHandler.bind(this));
+        /*applicationOn(resumeEvent, this.resumeEventHandler.bind(this));
         applicationOn(exitEvent, this.exitEventHandler.bind(this));
-        applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));
+        applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));*/
     }
 
     private configureSensors(): void {
@@ -200,16 +204,16 @@ export class SensorsViewModel extends Observable {
         }
     }
 
-    private resumeEventHandler(args: ApplicationEventData): void {
+    /*private resumeEventHandler(args: ApplicationEventData): void {
         console.log('resumeEventHandler');
-    }
+    }*/
 
     /*private suspendEventHandler(args: ApplicationEventData): void {
         console.log('suspendEventHandler');
         clearInterval(this._intervalId);
     }*/
 
-    private exitEventHandler(args: ApplicationEventData): void {
+    /*private exitEventHandler(args: ApplicationEventData): void {
         console.log('exitEventHandler');
         if(this._sensors) {
             this._sensors.forEach((o: Observable) => {
@@ -224,5 +228,5 @@ export class SensorsViewModel extends Observable {
 
     private lowMemoryEventHandler(args: ApplicationEventData): void {
         console.log('lowMemoryEventHandler');
-    }
+    }*/
 }

@@ -4,8 +4,8 @@ import { getTotp } from './otp-provider';
 import { WebSocketChannel } from './ws-channel';
 import { MQTTChannel } from './mqtt-channel';
 
-const clientId: string = 'galaxys6';
-const secret: string = '79STCF7GW7Q64TLD';
+const clientId: string = 'galaxy'; //'galaxys6';
+const secret: string = '0DOH6NGJ1HB1ERPF'; //'79STCF7GW7Q64TLD';
 
 var atsServiceInstance = null;
 
@@ -357,21 +357,26 @@ export class AtsService {
                     this._webSocketChannel.subscribe(config[event], (data: any) => this.handleEventWithPayloadCode.call(this, data, event));
                 }
                 if (this._mqttChannel) {
-                    this._mqttChannel.subscribe(event, (data: any) => this.handleEventWithPayloadCode.call(this, data, event));
+                    const callback = (data: any) => {
+                        this.handleEventWithPayloadCode.call(this, data, event);
+                    };
+                    this._mqttChannel.subscribe(event, callback);
                 }
             } else {
                 if (this._webSocketChannel) {
                     this._webSocketChannel.subscribe(config[event], (data: any) => this.publish(AtsEvents[event], data));
                 }
                 if (this._mqttChannel) {
-                    this._mqttChannel.subscribe(event, (data: any) => this.publish(AtsEvents[event], data));
+                    const callback = (data: any) => {
+                        this.publish(AtsEvents[event], data);
+                    };
+                    this._mqttChannel.subscribe(event, callback);
                 }
             }
         }
     }
 
     private onReceiveSensors(sensors: any): void {
-        console.log(sensors);
         if (sensors && Array.isArray(sensors)) {
             this._sensors = sensors;
         } else {

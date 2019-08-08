@@ -1,5 +1,5 @@
 import { Observable } from "tns-core-modules/data/observable";
-import { exitEvent, lowMemoryEvent, resumeEvent, ApplicationEventData, on as applicationOn } from "tns-core-modules/application";
+// import { exitEvent, lowMemoryEvent, resumeEvent, ApplicationEventData, on as applicationOn } from "tns-core-modules/application";
 
 import { Vibrate } from 'nativescript-vibrate';
 import * as Toast from "nativescript-toast";
@@ -66,11 +66,12 @@ export class HomeViewModel extends Observable {
         this.ats.subscribe(AtsEvents.SERVER_LWT_ONLINE, this.onServerConnectionChange.bind(this, true));
         this.ats.subscribe(AtsEvents.SERVER_LWT_OFFLINE, this.onServerConnectionChange.bind(this, false));
 
-        applicationOn(resumeEvent, this.resumeEventHandler.bind(this));
+        /*applicationOn(resumeEvent, this.resumeEventHandler.bind(this));
         applicationOn(exitEvent, this.exitEventHandler.bind(this));
-        applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));
+        applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));*/
 
         if (ats.connected) {
+            console.log('constructor-getState');
             setTimeout(() => ats.getState().then(this.onSystemStateChanged.bind(this)), 500);
         }
         
@@ -241,16 +242,15 @@ export class HomeViewModel extends Observable {
 
         stateLoadedRetryCount++;
         this.set(KEYS.message, `Waiting state... Retry ${stateLoadedRetryCount} of ${MAX_RETRIES}`);
-        stateLoadedTimeout = setTimeout(this.getStateIfNotLoaded.bind(this), 3000);
+        stateLoadedTimeout = setTimeout(this.getStateIfNotLoaded.bind(this), 5000);
         this.ats.getState()
             .then((data: any) => {
-                console.log('Recieved state', data);
                 clearTimeout(stateLoadedTimeout);
                 stateLoadedTimeout = undefined;
                 this.onSystemStateChanged.call(this, data);
             })
-            .catch((error) => {
-                console.log(error);
+            .catch((reason: any) => {
+                console.log(reason);
         });
     }
 
@@ -259,7 +259,7 @@ export class HomeViewModel extends Observable {
         this.set(KEYS.online, true);
         this.set(KEYS.loading, false);
         console.log('onLocallyConnected');
-        setTimeout(this.getStateIfNotLoaded.bind(this), 1000);
+        setTimeout(this.getStateIfNotLoaded.bind(this), 2000);
     }
     
     private onDisconnected(data: any): void {
@@ -274,7 +274,7 @@ export class HomeViewModel extends Observable {
         this.set(KEYS.online, true);
         this.set(KEYS.loading, false);
         console.log('onRemotelyConnected');
-        setTimeout(this.getStateIfNotLoaded.bind(this), 1000);
+        setTimeout(this.getStateIfNotLoaded.bind(this), 2000);
     }
 
     private onRemotelyDisconnected(data: any): void {
@@ -292,7 +292,7 @@ export class HomeViewModel extends Observable {
         toast.show();
     }
 
-    private resumeEventHandler(args: ApplicationEventData): void {
+    /*private resumeEventHandler(args: ApplicationEventData): void {
         console.log('resumeEventHandler');
         this.set(KEYS.loading, true);
         this.set(KEYS.online, this.ats.connected);
@@ -300,20 +300,21 @@ export class HomeViewModel extends Observable {
             setTimeout(() => this.ats.getState().then(this.onSystemStateChanged.bind(this)), 500);
         }
         this.set(KEYS.loading, !this.ats.connected);
-    }
+    }*/
 
     /*private suspendEventHandler(args: ApplicationEventData): void {
         console.log('suspendEventHandler');
         clearInterval(this._intervalId);
     }*/
 
-    private exitEventHandler(args: ApplicationEventData): void {
+    /*private exitEventHandler(args: ApplicationEventData): void {
         console.log('exitEventHandler');
+        stateLoaded = false;
         clearInterval(timeoutIntervalId);
         timeoutIntervalId = undefined;
     }
 
     private lowMemoryEventHandler(args: ApplicationEventData): void {
         console.log('lowMemoryEventHandler');
-    }
+    }*/
 }
