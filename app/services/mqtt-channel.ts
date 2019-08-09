@@ -1,11 +1,11 @@
 import { Channel, SystemState, SensorLocation, AtsErrors } from './ats-service';
 import { MQTTClient, ClientOptions, SubscribeOptions, Message } from 'nativescript-mqtt';
 
-const brokerUrl: string = 'postman.cloudmqtt.com';
-const brokerPort: number = 30115;
-const brokerSsl: boolean = true;
-const mqttUser: string = 'yqdiugmw';
-const mqttPass: string = '2sXis5gMuqK7';
+const brokerUrl: string = '192.168.137.1';
+const brokerPort: number = 9001;
+const brokerSsl: boolean = false;
+const mqttUser: string = '';
+const mqttPass: string = '';
 const mqttTopic: string = 'ats';
 const mqttCmnd: string = 'cmnd';
 
@@ -18,7 +18,6 @@ interface Listener {
 
 export class MQTTChannel implements Channel {
 
-    private _connected: boolean = false;
     private _mqtt: MQTTClient = null;
 
     private _connectedHandler: () => void = null;
@@ -44,7 +43,7 @@ export class MQTTChannel implements Channel {
             retryOnDisconnect: true,
             useSSL: brokerSsl,
             cleanSession: false,
-            clientId: `${this.clientId}`
+            clientId: `${this.clientId}-dev`
         };
 
         this._mqtt = new MQTTClient(opts);
@@ -59,7 +58,6 @@ export class MQTTChannel implements Channel {
     }
 
     private onMqttConnectionSuccess(): void {
-        this._connected = true;
         if (this._connectedHandler) {
             this._connectedHandler();
         }
@@ -79,7 +77,6 @@ export class MQTTChannel implements Channel {
     }
 
     private onMqttConnectionLost(err: any): void {
-        this._connected = false;
         if(this._disconnectedHandler) {
             this._disconnectedHandler();
         }
@@ -90,6 +87,7 @@ export class MQTTChannel implements Channel {
         const topic: string = message.topic;
         const subTopic: string = topic.substr(mqttTopic.length + 1);
         const payload: string = message.payload;
+        console.log('topic', topic);
         if(subTopic == 'SENSORS') {
             const sensors = JSON.parse(payload);
             this._receiveSensorsHandler(Array.isArray(sensors) ? sensors : []);
@@ -165,12 +163,17 @@ export class MQTTChannel implements Channel {
     }
 
     connect(): void {
+        console.log('connected', this.connected());
+        if(this.connected()) {
+            console.log('MQTT channel is already connected');
+            return;
+        }
         console.log('Connecting to MQTT broker...');
         this._mqtt.connect(mqttUser, mqttPass);
     }
 
     connected(): boolean {
-        return this._connected;
+        return this._mqtt ? this._mqtt.connected : false;
     }
 
     onConnected(handler: () => void): void {
@@ -183,7 +186,7 @@ export class MQTTChannel implements Channel {
     
     getServerTime(): Promise<number> {
         return new Promise<number>((resolve, reject) => {
-            if (!this._connected) {
+            if (!this.connected()) {
                 reject({ error: AtsErrors.NOT_CONNECTED });
             }
             let messageId: string = `${Date.now().toString().substr(3)}`;
@@ -220,7 +223,7 @@ export class MQTTChannel implements Channel {
 
     getState(token: string): Promise<SystemState> {
         return new Promise<SystemState>((resolve, reject) => {
-            if (!this._connected) {
+            if (!this.connected()) {
                 reject({ error: AtsErrors.NOT_CONNECTED });
             }
             let messageId: string;
@@ -257,7 +260,7 @@ export class MQTTChannel implements Channel {
 
     arm(token: string, mode: number, code?: string): Promise<void> {
         return new Promise<void>((resolve, reject) => {
-            if (!this._connected) {
+            if (!this.connected()) {
                 reject({ error: AtsErrors.NOT_CONNECTED });
             }
 
@@ -296,7 +299,7 @@ export class MQTTChannel implements Channel {
 
     disarm(token: string, code: string): Promise<void> {
         return new Promise<void>((resolve, reject) => {
-            if (!this._connected) {
+            if (!this.connected()) {
                 reject({ error: AtsErrors.NOT_CONNECTED });
             }
 
@@ -335,7 +338,7 @@ export class MQTTChannel implements Channel {
 
     bypass(token: string, location: SensorLocation, code: string): Promise<void> {
         return new Promise<void>((resolve, reject) => {
-            if (!this._connected) {
+            if (!this.connected()) {
                 reject({ error: AtsErrors.NOT_CONNECTED });
             }
 
@@ -387,7 +390,7 @@ export class MQTTChannel implements Channel {
 
     clearBypassOne(token: string, location: SensorLocation, code: string): Promise<void> {
         return new Promise<void>((resolve, reject) => {
-            if (!this._connected) {
+            if (!this.connected()) {
                 reject({ error: AtsErrors.NOT_CONNECTED });
             }
 
@@ -444,9 +447,11 @@ export class MQTTChannel implements Channel {
         this._receiveSensorsHandler = handler;
     }
 
-    subscribe(topic: string, callback: (data: any) => void): void {
-        this._mqtt.subscribe(`${mqttTopic}/STATE/${topic}`, { qos: 0 });
-        this.addListener(topic, callback);
+    subscribe(topic: string, callback: (data: any) => void, config?: any): void {
+        if (this.connected()) {
+            this._mqtt.subscribe(`${mqttTopic}/STATE/${topic}`, { qos: 0 });
+            this.addListener(topic, callback);
+        }
     }
 
     onLWT(handler: (online: boolean) => void): void {

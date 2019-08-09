@@ -4,8 +4,8 @@ import { getTotp } from './otp-provider';
 import { WebSocketChannel } from './ws-channel';
 import { MQTTChannel } from './mqtt-channel';
 
-const clientId: string = 'galaxy'; //'galaxys6';
-const secret: string = '0DOH6NGJ1HB1ERPF'; //'79STCF7GW7Q64TLD';
+const clientId: string = 'galaxys6';
+const secret: string = '79STCF7GW7Q64TLD';
 
 var atsServiceInstance = null;
 
@@ -137,7 +137,7 @@ export interface Channel {
     onReceiveWho(handler: () => void): void;
     onReceiveEvents(handler: (config: any) => void): void;
     onReceiveSensors(handler: (sensors: any) => void): void;
-    subscribe(topic: string, callback: (data: any) => void): void;
+    subscribe(topic: string, callback: (data: any) => void, config?: any): void;
 }
 
 export class AtsService {
@@ -198,20 +198,20 @@ export class AtsService {
         switch (connType) {
             case connectionType.none:
                 // TODO: show message.
-                console.log("No connection");
+                console.log('No connection');
                 break;
             case connectionType.wifi:
                 // Denotes a WiFi connection.
-                console.log("WiFi connection, try connect to local server");
+                console.log('WiFi connection, try connect to local server');
                 this._webSocketChannel.connect();
                 const m: Channel = this._mqttChannel;
                 setTimeout(m.connect.bind(m), 2000); // 2 second delay
                 break;
             case connectionType.mobile:
-                console.log("Mobile connection, try connect to remote server");
+                console.log('Mobile connection, try connect to remote server');
                 this._mqttChannel.connect();
                 const w: Channel = this._webSocketChannel;
-                setTimeout(w.connect.bind(w), 2000);
+                setTimeout(w.connect.bind(w), 2000); // 2 second delay
                 break;
             default:
                 break;
@@ -224,7 +224,7 @@ export class AtsService {
         this._webSocketChannel.onDisconnected(this.onWebSocketChannelDisconnected.bind(this));
         this._webSocketChannel.onReceiveTime(this.onReceiveTime.bind(this));
         this._webSocketChannel.onReceiveWho(this.onReceiveWho.bind(this));
-        this._webSocketChannel.onReceiveEvents(this.onReceiveEvents.bind(this));
+        this._webSocketChannel.onReceiveEvents((c: any) => this.onReceiveEvents.call(this, this._webSocketChannel, c));
         this._webSocketChannel.onReceiveSensors(this.onReceiveSensors.bind(this));
     }
 
@@ -234,7 +234,7 @@ export class AtsService {
         this._mqttChannel.onDisconnected(this.onMQTTChannelDisconnected.bind(this));
         this._mqttChannel.onReceiveTime(this.onReceiveTime.bind(this));
         this._mqttChannel.onReceiveWho(this.onReceiveWho.bind(this));
-        this._mqttChannel.onReceiveEvents(this.onReceiveEvents.bind(this));
+        this._mqttChannel.onReceiveEvents((c: any) => this.onReceiveEvents.call(this, this._mqttChannel, c));
         this._mqttChannel.onReceiveSensors(this.onReceiveSensors.bind(this));
         (this._mqttChannel as MQTTChannel).onLWT(this.onLWT.bind(this));
     }
@@ -350,29 +350,15 @@ export class AtsService {
         this.publish(AtsEvents[event], payload);
     }
 
-    private onReceiveEvents(config: any): void {
+    private onReceiveEvents(channel: Channel, config: any): void {
         for(let event in config) {
+            let cb: (data: any) => void;
             if (this.payloadEventsIncludes(event)) {
-                if (this._webSocketChannel) {
-                    this._webSocketChannel.subscribe(config[event], (data: any) => this.handleEventWithPayloadCode.call(this, data, event));
-                }
-                if (this._mqttChannel) {
-                    const callback = (data: any) => {
-                        this.handleEventWithPayloadCode.call(this, data, event);
-                    };
-                    this._mqttChannel.subscribe(event, callback);
-                }
+                cb = (data: any): void => this.handleEventWithPayloadCode.call(this, data, event);
             } else {
-                if (this._webSocketChannel) {
-                    this._webSocketChannel.subscribe(config[event], (data: any) => this.publish(AtsEvents[event], data));
-                }
-                if (this._mqttChannel) {
-                    const callback = (data: any) => {
-                        this.publish(AtsEvents[event], data);
-                    };
-                    this._mqttChannel.subscribe(event, callback);
-                }
+                cb = (data: any): void => this.publish(AtsEvents[event], data);
             }
+            channel.subscribe(event, cb, config);
         }
     }
 
@@ -389,6 +375,7 @@ export class AtsService {
         console.log('onLWT', online);
         if (online) {
             this.publish(AtsEvents.SERVER_LWT_ONLINE);
+            this.tryConnect(getConnectionType());
         } else {
             this.publish(AtsEvents.SERVER_LWT_OFFLINE);
         }

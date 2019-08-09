@@ -2,11 +2,10 @@ import { Channel, SystemState, SensorLocation, AtsErrors, ProtocolMesssages } fr
 import { SocketIO } from 'nativescript-socketio';
 import { HttpRequestOptions, HttpResponse, request } from "tns-core-modules/http/http";
 
-const serverUrl: string = 'http://192.168.0.117:3000';
+const serverUrl: string = 'http://192.168.137.1:3000';
 
 export class WebSocketChannel implements Channel {
 
-    private _connected: boolean = false;
     private _socket: SocketIO = null;
 
     private _reconnectIntents: number = 0;
@@ -74,7 +73,6 @@ export class WebSocketChannel implements Channel {
     }
 
     private onSocketConnected(): void {
-        this._connected = true;
         this._reconnectIntents = 0;
         clearInterval(this._reconnectIntervalId);
         this._reconnectIntervalId = null;
@@ -84,7 +82,6 @@ export class WebSocketChannel implements Channel {
     }
 
     private onSocketDisconnected(): void {
-        this._connected = false;
         this._reconnectIntervalId = setInterval(this.reconnect.bind(this), 5000);
         if(this._disconnectedHandler) {
             this._disconnectedHandler();
@@ -116,12 +113,17 @@ export class WebSocketChannel implements Channel {
     }
 
     connect(): void {
+        console.log('connected', this.connected());
+        if (this.connected()) {
+            console.log('WebSocket channel is already connected');
+            return;
+        }
         console.log(`AtsService connecting to server ${serverUrl}`);
         this._socket.connect();
     }
 
     connected(): boolean {
-        return this._connected;
+        return this._socket ? this._socket.connected : false;
     }
 
     onConnected(handler: () => void): void {
@@ -308,7 +310,11 @@ export class WebSocketChannel implements Channel {
         this._receiveSensorsHandler = handler;
     }
 
-    subscribe(topic: string, callback: (data: any) => void): void {
+    subscribe(topic: string, callback: (data: any) => void, config?: any): void {
+        if (config) {
+            this._socket.on(config[topic] || topic, callback);
+            return;
+        }
         this._socket.on(topic, callback);
     }
 }
