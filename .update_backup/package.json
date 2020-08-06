@@ -2,10 +2,10 @@
   "nativescript": {
     "id": "dev.gamarivera.ats",
     "tns-ios": {
-      "version": "6.5.0"
+      "version": "6.0.1"
     },
     "tns-android": {
-      "version": "6.5.0"
+      "version": "6.0.0"
     }
   },
   "description": "Mobile App for AntiTheft System",

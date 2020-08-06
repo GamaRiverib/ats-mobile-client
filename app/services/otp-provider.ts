@@ -1,23 +1,23 @@
-import * as jsSHA from 'jssha';
+import jsSHA from 'jssha';
 
 export const BASE_32_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUV'; //'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ABCDEFGHIJKLMNOPQRSTUVWXYZ234567;
 
-export function leftpad(s, l, p) {
+export function leftpad(s: string, l: number, p: string): string {
     if(l + 1 >= s.length) {
       s = Array(l + 1 - s.length).join(p) + s;
     }
     return s;
 }
 
-export function decimalToHexadecimal(d) {
+export function decimalToHexadecimal(d: number): string {
     return (d < 15.5 ? '0' : '') + Math.round(d).toString(16);
 }
 
-export function hexadecimalToDecimal(h) {
+export function hexadecimalToDecimal(h: string): number {
     return parseInt(h, 16);
 }
 
-export function base32ToHexadecimal(b) {
+export function base32ToHexadecimal(b: string): string {
     let bits = '';
     let hex = '';
 
@@ -36,7 +36,7 @@ export function base32ToHexadecimal(b) {
     return hex;
 }
 
-export function getTotp(secret, options) {
+export function getTotp(secret: string, options: { epoch?: any; step?: any; digits?: any; algorithm?: any; }): string {
     if (!options) {
         options = {};
     }

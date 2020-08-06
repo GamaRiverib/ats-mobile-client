@@ -71,8 +71,7 @@ export class HomeViewModel extends Observable {
         applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));*/
 
         if (ats.connected) {
-            console.log('constructor-getState');
-            setTimeout(() => ats.getState().then(this.onSystemStateChanged.bind(this)), 500);
+            ats.getState().then(this.onSystemStateChanged.bind(this));
         }
         
         this.set(KEYS.loading, !ats.connected);
@@ -87,7 +86,12 @@ export class HomeViewModel extends Observable {
         if(data && data.system) {
             const activedSensors: Array<number> = data.system.activedSensors || [];
             const sensors: Array<string> = [];
-            activedSensors.forEach((s: number) => sensors.push(this.ats.getSensor(s).name ));
+            activedSensors.forEach((i: number) => {
+                const s: Sensor = this.ats.getSensor(i);
+                if (s) {
+                    sensors.push(s.name);
+                }
+            });
             toast = Toast.makeText(`Received system alert: ${sensors}`);
         } else {
             toast = Toast.makeText('Received system alert');

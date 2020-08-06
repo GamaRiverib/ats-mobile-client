@@ -1,13 +1,13 @@
 import { Channel, SystemState, SensorLocation, AtsErrors } from './ats-service';
 import { MQTTClient, ClientOptions, SubscribeOptions, Message } from 'nativescript-mqtt';
 
-const brokerUrl: string = '192.168.137.1';
+const brokerUrl: string = '192.168.0.142';
 const brokerPort: number = 9001;
 const brokerSsl: boolean = false;
 const mqttUser: string = '';
 const mqttPass: string = '';
-const mqttTopic: string = 'ats';
-const mqttCmnd: string = 'cmnd';
+const mqttTopic: string = '/ats';
+const cmndTopic: string = 'commands';
 
 const timeout: number = 30000;
 
@@ -43,7 +43,7 @@ export class MQTTChannel implements Channel {
             retryOnDisconnect: true,
             useSSL: brokerSsl,
             cleanSession: false,
-            clientId: `${this.clientId}-dev`
+            clientId: `${this.clientId}-${Math.floor((Math.random() * 1000) + 1)}`
         };
 
         this._mqtt = new MQTTClient(opts);
@@ -64,13 +64,12 @@ export class MQTTChannel implements Channel {
         console.log('Connected to MQTT', brokerUrl, brokerPort);
         try {
             let subOpts: SubscribeOptions = { qos: 0};
-            this._mqtt.subscribe(`${mqttTopic}/TIME`, subOpts);
-            this._mqtt.subscribe(`${mqttTopic}/SENSORS`, subOpts);
-            this._mqtt.subscribe(`${mqttTopic}/EVENTS`, subOpts);
-            this._mqtt.subscribe(`${mqttTopic}/LWT`, subOpts);
-            // this._mqtt.subscribe(`${mqttTopic}/RESULT/#`, subOpts);
-            // this._mqtt.subscribe(`${mqttTopic}/STATE/#`, subOpts);
-            
+            this._mqtt.subscribe(`${mqttTopic}/time`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/sensors`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/events`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/lwt`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/devices/${this.clientId}/response/#`, subOpts);
+            this._mqtt.subscribe(`${mqttTopic}/state/#`, { qos: 0 });
         } catch(e) {
             console.log(e);
         }
@@ -87,29 +86,33 @@ export class MQTTChannel implements Channel {
         const topic: string = message.topic;
         const subTopic: string = topic.substr(mqttTopic.length + 1);
         const payload: string = message.payload;
-        console.log('topic', topic);
-        if(subTopic == 'SENSORS') {
+        
+        console.log(topic, payload);
+
+        if(subTopic == 'sensors') {
             const sensors = JSON.parse(payload);
             this._receiveSensorsHandler(Array.isArray(sensors) ? sensors : []);
-        } else if(subTopic == 'TIME') {
+        } else if(subTopic == 'time') {
             let time: number = Number.parseInt(payload);
             if (Number.isInteger(time) && time > 0) {
                 this._receiveTimeHandler(time);
             }
-        } else if(subTopic == 'EVENTS') {
+        } else if(subTopic == 'events') {
             this._receiveEventsHandler(JSON.parse(payload));
-        } else if(subTopic == 'LWT') {
+        } else if(subTopic == 'lwt') {
             if (this._lwtHandler) {
                 const online: boolean = payload.toLowerCase() == 'online';
                 this._lwtHandler(online);
             }
-        } else if(subTopic.startsWith('RESULT/')) {
-            const messageId: string = subTopic.split('/')[1];
+        } else if(subTopic.startsWith('state/')) {
+            const event: string = subTopic.split('/')[1];
+            const state = JSON.parse(payload);
+            console.log(event, state);
+            this.listeners(event, state);
+        } else if(subTopic.startsWith(`devices/${this.clientId}/response/`)) {
+            const messageId: string = subTopic.split('/')[3];
             this.listeners(messageId, payload);
             this.forgetResult(messageId);
-        } else if(subTopic.startsWith('STATE/')) {
-            const event: string = subTopic.split('/')[1];
-            this.listeners(event, payload);
         }
     }
 
@@ -153,17 +156,17 @@ export class MQTTChannel implements Channel {
     }
 
     private waitResult(messageId: string, callback: (data: any) => void): void {
-        this._mqtt.subscribe(`${mqttTopic}/RESULT/${messageId}`, { qos: 0 });
+        // this._mqtt.subscribe(`${mqttTopic}/devices/${this.clientId}/response/${messageId}`, { qos: 0 });
         this.addListener(messageId, callback);
     }
 
     private forgetResult(messageId: string): void {
         this.removeAllListeners(messageId);
-        this._mqtt.unsubscribe(`${mqttTopic}/RESULT/${messageId}`);
+        // this._mqtt.unsubscribe(`${mqttTopic}/devices/${this.clientId}/response/${messageId}`);
     }
 
     connect(): void {
-        console.log('connected', this.connected());
+        console.log('MQTT connected', this.connected());
         if(this.connected()) {
             console.log('MQTT channel is already connected');
             return;
@@ -190,10 +193,15 @@ export class MQTTChannel implements Channel {
                 reject({ error: AtsErrors.NOT_CONNECTED });
             }
             let messageId: string = `${Date.now().toString().substr(3)}`;
+
+            const payload = {
+                command: 'time',
+                id: messageId
+            };
             
             let message: Message = {
-                topic: `${mqttTopic}/${mqttCmnd}/TIME`,
-                payload: messageId,
+                topic: `${mqttTopic}/devices/${this.clientId}/${cmndTopic}`,
+                payload: JSON.stringify(payload),
                 bytes: null,
                 qos: 0,
                 retained: false
@@ -232,9 +240,15 @@ export class MQTTChannel implements Channel {
             } else {
                 messageId = `${Date.now().toString().substr(3)}`;
             }
+
+            const payload = {
+                command: 'state',
+                id: messageId
+            };
+            
             let message: Message = {
-                topic: `${mqttTopic}/${mqttCmnd}/STATE`,
-                payload: messageId,
+                topic: `${mqttTopic}/devices/${this.clientId}/${cmndTopic}`,
+                payload: JSON.stringify(payload),
                 bytes: null,
                 qos: 0,
                 retained: false
@@ -265,12 +279,12 @@ export class MQTTChannel implements Channel {
             }
 
             const messageId: string = `${token}${Date.now().toString().substr(9)}`;
-            const command: string = 'ARM';
+            const command: string = 'arm';
             const clientId: string = this.clientId;
-            const payload: any = { messageId, clientId, token, mode, code };
+            const payload: any = { command, id: messageId, params: { token, mode, code }};
             
             let message: Message = {
-                topic: `${mqttTopic}/${mqttCmnd}/${command}`,
+                topic: `${mqttTopic}/devices/${clientId}/${cmndTopic}`,
                 payload: JSON.stringify(payload),
                 bytes: null,
                 qos: 0,
@@ -304,12 +318,12 @@ export class MQTTChannel implements Channel {
             }
 
             const messageId: string = `${token}${Date.now().toString().substr(9)}`;
-            const command: string = 'DISARM';
+            const command: string = 'disarm';
             const clientId: string = this.clientId;
-            const payload: any = { messageId, clientId, token, code };
+            const payload: any = { command, id: messageId, params: { token, code }};
             
             let message: Message = {
-                topic: `${mqttTopic}/${mqttCmnd}/${command}`,
+                topic: `${mqttTopic}/devices/${clientId}/${cmndTopic}`,
                 payload: JSON.stringify(payload),
                 bytes: null,
                 qos: 0,
@@ -343,12 +357,12 @@ export class MQTTChannel implements Channel {
             }
 
             const messageId: string = `${token}${Date.now().toString().substr(9)}`;
-            const command: string = 'BYPASS';
+            const command: string = 'bypass';
             const clientId: string = this.clientId;
-            const payload: any = { messageId, clientId, token, code, location };
+            const payload: any = { command, id: messageId, params: { token, code, location }};
             
             let message: Message = {
-                topic: `${mqttTopic}/${mqttCmnd}/${command}`,
+                topic: `${mqttTopic}/devices/${clientId}/${cmndTopic}`,
                 payload: JSON.stringify(payload),
                 bytes: null,
                 qos: 0,
@@ -395,12 +409,12 @@ export class MQTTChannel implements Channel {
             }
 
             const messageId: string = `${token}${Date.now().toString().substr(9)}`;
-            const command: string = 'CLEARBYPASSONE';
+            const command: string = 'clearbypassone';
             const clientId: string = this.clientId;
-            const payload: any = { messageId, clientId, token, code, location };
+            const payload: any = { command, id: messageId, params: { token, code, location }};
             
             let message: Message = {
-                topic: `${mqttTopic}/${mqttCmnd}/${command}`,
+                topic: `${mqttTopic}/devices/${clientId}/${cmndTopic}`,
                 payload: JSON.stringify(payload),
                 bytes: null,
                 qos: 0,
@@ -449,7 +463,6 @@ export class MQTTChannel implements Channel {
 
     subscribe(topic: string, callback: (data: any) => void, config?: any): void {
         if (this.connected()) {
-            this._mqtt.subscribe(`${mqttTopic}/STATE/${topic}`, { qos: 0 });
             this.addListener(topic, callback);
         }
     }

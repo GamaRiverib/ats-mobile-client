@@ -4,8 +4,8 @@ import { getTotp } from './otp-provider';
 import { WebSocketChannel } from './ws-channel';
 import { MQTTChannel } from './mqtt-channel';
 
-const clientId: string = 'galaxys6';
-const secret: string = '79STCF7GW7Q64TLD';
+const clientId: string = 'devmobile';
+const secret: string = '0DOH6NGJ1HB1ERPF';
 
 var atsServiceInstance = null;
 

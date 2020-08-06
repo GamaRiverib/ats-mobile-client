@@ -61,6 +61,53 @@ export class SensorsViewModel extends Observable {
         applicationOn(lowMemoryEvent, this.lowMemoryEventHandler.bind(this));*/
     }
 
+    private addSensor(s: Sensor, actived: boolean): void {
+        let sensor: SensorData = {
+            id: `${s.location.mac}:${s.location.pin}`,
+            name: s.name,
+            type: SensorTypesFriendlyNames[s.type],
+            group: SensorGroupFriendlyNames[s.group],
+            actived,
+            bypass: s.bypass,
+            online: s.online || false
+        };
+        let sensorObservable = fromObject(sensor);
+        sensorObservable.on(Observable.propertyChangeEvent, (data: PropertyChangeData) => {
+            if(data.propertyName == 'bypass') {
+                if(this._canceled) {
+                    this._canceled = false;
+                    return true;
+                }
+                this.requestCode(data.value).then(() => {
+                    if(data.value) {
+                        this.ats.bypass(s.location, this._code)
+                        .then(() => {
+                            console.log('bypass', s);
+                        }).catch((reason: { error: number }) => {
+                            this._canceled = true;
+                            sensorObservable.set('bypass', !data.value);
+                            this.handleError.call(this, reason);
+                        });
+                    } else {
+                        this.ats.clearBypassOne(s.location, this._code)
+                        .then(() => {
+                            console.log('clear bypass', s);
+                        }).catch((reason: { error: number }) => {
+                            this._canceled = true;
+                            sensorObservable.set('bypass', !data.value);
+                            this.handleError.call(this, reason);
+                        });
+                    }
+                }).catch((reason: any) => {
+                    console.log(reason);
+                    this._canceled = true;
+                    sensorObservable.set('bypass', !data.value);
+                });
+            }
+        });
+        this._sensors.push(sensorObservable);
+    }
+
     private configureSensors(): void {
         for (let i = 0; i < this.ats.sensors.length; i++) {
             const s: Sensor = this.ats.sensors[i];
@@ -73,69 +120,31 @@ export class SensorsViewModel extends Observable {
                     return actived = true;
                 }
             });
-            let sensor: SensorData = {
-                id: `${s.location.mac}:${s.location.pin}`,
-                name: s.name,
-                type: SensorTypesFriendlyNames[s.type],
-                group: SensorGroupFriendlyNames[s.group],
-                actived,
-                bypass: s.bypass,
-                online: s.online || false
-            };
-            let sensorObservable = fromObject(sensor);
-            sensorObservable.on(Observable.propertyChangeEvent, (data: PropertyChangeData) => {
-                if(data.propertyName == 'bypass') {
-                    if(this._canceled) {
-                        this._canceled = false;
-                        return true;
-                    }
-                    this.requestCode(data.value).then(() => {
-                        if(data.value) {
-                            this.ats.bypass(s.location, this._code)
-                            .then(() => {
-                                console.log('bypass', s);
-                            }).catch((reason: { error: number }) => {
-                                this._canceled = true;
-                                sensorObservable.set('bypass', !data.value);
-                                this.handleError.call(this, reason);
-                            });
-                        } else {
-                            this.ats.clearBypassOne(s.location, this._code)
-                            .then(() => {
-                                console.log('clear bypass', s);
-                            }).catch((reason: { error: number }) => {
-                                this._canceled = true;
-                                sensorObservable.set('bypass', !data.value);
-                                this.handleError.call(this, reason);
-                            });
-                        }
-                    }).catch((reason: any) => {
-                        console.log(reason);
-                        this._canceled = true;
-                        sensorObservable.set('bypass', !data.value);
-                    });
-                }
-            });
-            this._sensors.push(sensorObservable);
+            this.addSensor(s, actived);
         }
     }
 
     private updateSensors(sensors: Sensor[]): void {
-        console.log(this._sensors);
         for (let i = 0; i < sensors.length; i++) {
             const s: Sensor = this.ats.sensors[i];
+            let sensorFound: boolean = false;
             this._sensors.forEach((sensorData: SensorData) => {
                 const id: string = `${s.location.mac}:${s.location.pin}`;
-                console.log(id);
                 if(sensorData.id == id) {
                     sensorData.name = s.name;
                     sensorData.type = SensorTypesFriendlyNames[s.type];
                     sensorData.group = SensorGroupFriendlyNames[s.group];
                     sensorData.bypass = s.bypass;
                     sensorData.online = s.online || false;
+
+                    sensorFound = true;
                     return;
                 }
             });
+
+            if (!sensorFound) {
+                this.addSensor(s, false);
+            }
         }
     }
 
